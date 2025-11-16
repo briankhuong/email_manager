@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hotmail/Outlook Account Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .account-card { 
+            transition: all 0.3s; 
+            border: 1px solid #e0e0e0;
+        }
+        .account-card:hover { 
+            transform: translateY(-2px); 
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1); 
+        }
+        .unread-badge { 
+            font-size: 0.9em; 
+        }
+        .status-indicator { 
+            width: 10px; 
+            height: 10px; 
+            border-radius: 50%; 
+            display: inline-block; 
+        }
+        .status-online { 
+            background-color: #28a745; 
+        }
+        .status-offline { 
+            background-color: #6c757d; 
+        }
+        .status-error { 
+            background-color: #dc3545; 
+        }
+        .email-text {
+            word-break: break-all;
+        }
+        .clickable-email {
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        .clickable-email:hover {
+            color: #007bff !important;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('dashboard') }}">📧 Email Manager</a>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>Hotmail/Outlook Accounts</h1>
+            <div>
+                <a href="{{ url_for('add_account') }}" class="btn btn-primary me-2">Add Account</a>
+                <a href="{{ url_for('sign_out_all') }}" class="btn btn-warning" onclick="return confirm('Sign out all accounts?')">Sign Out All</a>
+            </div>
+        </div>
+
+        <div class="row">
+            {% for account in accounts %}
+            <div class="col-md-6 col-lg-4 mb-3">
+                <div class="card account-card h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <h6 class="card-title email-text">
+                                <a href="{{ url_for('view_emails', account_id=account.id) }}" 
+                                   class="text-decoration-none text-dark clickable-email">
+                                    {{ account.email }}
+                                </a>
+                            </h6>
+                            <span class="status-indicator {{ 'status-online' if account.is_signed_in and not account.last_error else 'status-error' if account.last_error else 'status-offline' }}"></span>
+                        </div>
+                        
+                        <div class="mb-2">
+                            {% if account.unread_count > 0 %}
+                                <a href="{{ url_for('view_emails', account_id=account.id) }}" 
+                                   class="badge bg-danger unread-badge text-decoration-none">
+                                    {{ account.unread_count }} unread email{% if account.unread_count != 1 %}s{% endif %}
+                                </a>
+                            {% else %}
+                                <span class="badge bg-secondary unread-badge">No new emails</span>
+                            {% endif %}
+                        </div>
+                        
+                        <p class="card-text small text-muted mb-1">
+                            Last checked: 
+                            {% if account.last_checked %}
+                                {{ account.last_checked[:16] }}
+                            {% else %}
+                                Never
+                            {% endif %}
+                        </p>
+                        
+                        {% if account.last_error %}
+                        <div class="alert alert-warning small py-2 mb-2">
+                            <strong>Error:</strong> {{ account.last_error }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="card-footer">
+                        <div class="btn-group w-100">
+                            {% if account.is_signed_in %}
+                                <a href="{{ url_for('sign_out', account_id=account.id) }}" class="btn btn-outline-warning btn-sm">Sign Out</a>
+                            {% else %}
+                                <a href="{{ url_for('sign_in', account_id=account.id) }}" class="btn btn-outline-success btn-sm">Sign In</a>
+                            {% endif %}
+                            <a href="{{ url_for('delete_account', account_id=account.id) }}" class="btn btn-outline-danger btn-sm" onclick="return confirm('Are you sure you want to delete {{ account.email }}?')">Delete</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="col-12">
+                <div class="alert alert-info text-center">
+                    <h4>No accounts added yet</h4>
+                    <p class="mb-0">Click the "Add Account" button to add your first Hotmail/Outlook account.</p>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        {% if accounts %}
+        <div class="mt-4 text-center text-muted">
+            <small>Emails are checked automatically when you add each account.</small>
+            <br>
+            <small>Click on any email address or unread count to view emails.</small>
+        </div>
+        {% endif %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

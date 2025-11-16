@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0">Add Hotmail/Outlook Account</h4>
+            </div>
+            <div class="card-body text-center">
+                <p>Click the button below to sign in with your Microsoft account:</p>
+                <a href="{{ url_for('login') }}" class="btn btn-primary btn-lg">Sign in with Microsoft</a>
+                
+                <div class="mt-4">
+                    <small class="text-muted">
+                        You'll be redirected to Microsoft's secure login page. We never see your password.
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ email.subject }} - {{ account_email }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .email-content {
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .email-header {
+            border-bottom: 1px solid #dee2e6;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+        .email-body {
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+        .attachment-item {
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('dashboard') }}">📧 Email Manager</a>
+            <span class="navbar-text text-white">
+                Viewing: {{ account_email }}
+            </span>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>{{ email.subject }}</h1>
+            <div>
+                <a href="{{ url_for('view_emails', account_id=account_id) }}" class="btn btn-outline-secondary me-2">← Back to Emails</a>
+                <a href="{{ url_for('dashboard') }}" class="btn btn-outline-primary">Dashboard</a>
+            </div>
+        </div>
+
+        <div class="email-content">
+            <div class="email-header">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>From:</strong> 
+                            {% if email.from_name and email.from_name != 'Unknown' %}
+                                {{ email.from_name }} &lt;{{ email.from_email }}&gt;
+                            {% else %}
+                                {{ email.from_email }}
+                            {% endif %}
+                        </p>
+                        <p><strong>To:</strong> {{ email.to_recipients|join(', ') }}</p>
+                    </div>
+                    <div class="col-md-6 text-md-end">
+                        <p><strong>Received:</strong> {{ email.received[:16] }}</p>
+                        {% if email.has_attachments %}
+                            <span class="badge bg-info">📎 Has Attachments</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="email-body">
+                {{ email.body|safe if email.body_type == 'html' else email.body }}
+            </div>
+
+            {% if email.has_attachments and email.attachments %}
+            <div class="attachments mt-4">
+                <h5>Attachments ({{ email.attachments|length }})</h5>
+                {% for attachment in email.attachments %}
+                <div class="attachment-item">
+                    <strong>{{ attachment.name }}</strong>
+                    <br>
+                    <small class="text-muted">Size: {{ (attachment.size / 1024)|round(2) }} KB</small>
+                    <br>
+                    <small class="text-muted">Type: {{ attachment.contentType }}</small>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="mt-4 text-center">
+            <a href="{{ url_for('view_emails', account_id=account_id) }}" class="btn btn-secondary me-2">← Back to Emails</a>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-outline-primary">Dashboard</a>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
