@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, Response
 import sqlite3
 import time
 from datetime import datetime
@@ -7,10 +7,64 @@ import requests
 from config import Config
 import msal
 import json
+import base64
+from functools import wraps
 
 app = Flask(__name__)
 app.config.from_object(Config)
 app.secret_key = app.config['SECRET_KEY']
+
+# Simple password protection
+APP_USERNAME = "lbasapp"
+APP_PASSWORD = "Ngoc@123"  # Change this to your desired password
+
+def check_auth(auth_header):
+    """Check if authorized"""
+    if not auth_header:
+        return False
+    try:
+        auth_type, auth_string = auth_header.split(' ', 1)
+        if auth_type.lower() != 'basic':
+            return False
+        decoded = base64.b64decode(auth_string).decode('utf-8')
+        username, password = decoded.split(':', 1)
+        return username == APP_USERNAME and password == APP_PASSWORD
+    except:
+        return False
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        # Check if already authenticated in session
+        if session.get('authenticated'):
+            return f(*args, **kwargs)
+            
+        # Check basic auth header
+        auth_header = request.headers.get('Authorization')
+        if check_auth(auth_header):
+            session['authenticated'] = True
+            return f(*args, **kwargs)
+            
+        # Not authenticated - show login prompt
+        return Response(
+            'Email Manager - Login Required',
+            401,
+            {'WWW-Authenticate': 'Basic realm="Email Manager Login"'}
+        )
+    return decorated
+
+@app.before_request
+def require_login():
+    # Skip auth for static files and the logout route
+    if request.endpoint and ('static' in request.endpoint or request.endpoint == 'logout'):
+        return
+    return login_required(lambda: None)()
+
+@app.route('/logout')
+def logout():
+    """Logout and clear session"""
+    session.pop('authenticated', None)
+    return redirect('/')
 
 def init_db():
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -185,6 +239,7 @@ def callback():
     return dashboard()
 
 @app.route('/dashboard')
+@login_required
 def dashboard():
     """Display the accounts dashboard"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -211,6 +266,7 @@ def dashboard():
     return render_template('index.html', accounts=accounts)
 
 @app.route('/login')
+@login_required
 def login():
     """Redirect to Microsoft login"""
     auth_url = get_msal_app().get_authorization_request_url(
@@ -220,11 +276,13 @@ def login():
     return redirect(auth_url)
 
 @app.route('/add_account')
+@login_required
 def add_account():
     """Redirect to Microsoft login to add an account"""
     return redirect(url_for('login'))
 
 @app.route('/sign_out_all')
+@login_required
 def sign_out_all():
     """Sign out all accounts"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -237,6 +295,7 @@ def sign_out_all():
     return redirect(url_for('dashboard'))
 
 @app.route('/sign_out/<int:account_id>')
+@login_required
 def sign_out(account_id):
     """Sign out a specific account"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -249,6 +308,7 @@ def sign_out(account_id):
     return redirect(url_for('dashboard'))
 
 @app.route('/sign_in/<int:account_id>')
+@login_required
 def sign_in(account_id):
     """Sign in a specific account"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -261,6 +321,7 @@ def sign_in(account_id):
     return redirect(url_for('dashboard'))
 
 @app.route('/delete_account/<int:account_id>')
+@login_required
 def delete_account(account_id):
     """Delete a specific account"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -273,6 +334,7 @@ def delete_account(account_id):
     return redirect(url_for('dashboard'))
 
 @app.route('/view_emails/<int:account_id>')
+@login_required
 def view_emails(account_id):
     """View unread emails for a specific account"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -341,6 +403,7 @@ def view_emails(account_id):
         return redirect(url_for('dashboard'))
 
 @app.route('/view_email/<int:account_id>/<message_id>')
+@login_required
 def view_email(account_id, message_id):
     """View full email content"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -408,6 +471,7 @@ def view_email(account_id, message_id):
         return redirect(url_for('view_emails', account_id=account_id))
 
 @app.route('/mark_as_read/<int:account_id>/<message_id>')
+@login_required
 def mark_as_read(account_id, message_id):
     """Mark a specific email as read and redirect to view it"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -454,6 +518,7 @@ def mark_as_read(account_id, message_id):
         return redirect(url_for('view_email', account_id=account_id, message_id=message_id))
 
 @app.route('/debug-token/<int:account_id>')
+@login_required
 def debug_token(account_id):
     """Debug token for a specific account"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -478,6 +543,7 @@ def debug_token(account_id):
     }
 
 @app.route('/debug-app')
+@login_required
 def debug_app():
     """Debug Azure app configuration"""
     return {
@@ -491,7 +557,6 @@ def debug_app():
 if __name__ == '__main__':
     init_db()
     
-    # Get port from environment variable (Railway provides this)
+    # NO BACKGROUND THREAD - Manual checking only
     port = int(os.environ.get('PORT', 5001))
-    # Run with debug=False in production
     app.run(host='0.0.0.0', port=port, debug=False)
