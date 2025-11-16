@@ -107,6 +107,67 @@ def get_token_from_code(code):
     )
     return result
 
+def refresh_token(account_id):
+    """Refresh access token using refresh token"""
+    conn = sqlite3.connect(app.config['DATABASE_FILE'])
+    c = conn.cursor()
+    c.execute("SELECT email, refresh_token FROM accounts WHERE id = ?", (account_id,))
+    row = c.fetchone()
+    
+    if not row or not row[1]:
+        return None
+        
+    email, refresh_token_value = row
+    
+    if not refresh_token_value:
+        return None
+    
+    try:
+        result = get_msal_app().acquire_token_by_refresh_token(
+            refresh_token_value,
+            scopes=app.config['SCOPE']
+        )
+        
+        if 'access_token' in result:
+            access_token = result['access_token']
+            new_refresh_token = result.get('refresh_token', refresh_token_value)
+            
+            # Update tokens in database
+            c.execute('''
+                UPDATE accounts 
+                SET access_token = ?, refresh_token = ?, last_error = NULL
+                WHERE id = ?
+            ''', (access_token, new_refresh_token, account_id))
+            conn.commit()
+            conn.close()
+            print(f"Successfully refreshed token for {email}")
+            return access_token
+        else:
+            error_msg = f"Token refresh failed: {result.get('error_description', 'Unknown error')}"
+            print(f"Token refresh error for {email}: {error_msg}")
+            # Update error in database
+            c.execute('''
+                UPDATE accounts 
+                SET last_error = ?
+                WHERE id = ?
+            ''', (error_msg, account_id))
+            conn.commit()
+            conn.close()
+            return None
+            
+    except Exception as e:
+        error_msg = f"Token refresh exception: {str(e)}"
+        print(f"Token refresh exception for {email}: {error_msg}")
+        # Update error in database
+        c.execute('''
+            UPDATE accounts 
+            SET last_error = ?
+            WHERE id = ?
+        ''', (error_msg, account_id))
+        conn.commit()
+        conn.close()
+        return None
+
 def get_user_info(access_token):
     headers = {'Authorization': f'Bearer {access_token}'}
     try:
@@ -371,6 +432,15 @@ def view_emails(account_id):
         
         response = requests.get(url, headers=headers, params=params)
         
+        # If token expired, try to refresh it
+        if response.status_code == 401:
+            print(f"Token expired for {email}, attempting refresh...")
+            new_access_token = refresh_token(account_id)
+            if new_access_token:
+                # Retry with new token
+                headers['Authorization'] = f'Bearer {new_access_token}'
+                response = requests.get(url, headers=headers, params=params)
+        
         if response.status_code == 200:
             emails_data = response.json()
             emails = emails_data.get('value', [])
@@ -436,6 +506,15 @@ def view_email(account_id, message_id):
         
         response = requests.get(url, headers=headers, params=params)
         
+        # If token expired, try to refresh it
+        if response.status_code == 401:
+            print(f"Token expired for {email}, attempting refresh...")
+            new_access_token = refresh_token(account_id)
+            if new_access_token:
+                # Retry with new token
+                headers['Authorization'] = f'Bearer {new_access_token}'
+                response = requests.get(url, headers=headers, params=params)
+        
         if response.status_code == 200:
             email_data = response.json()
             
@@ -476,7 +555,7 @@ def mark_as_read(account_id, message_id):
     """Mark a specific email as read and redirect to view it"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
     c = conn.cursor()
-    c.execute("SELECT access_token FROM accounts WHERE id = ?", (account_id,))
+    c.execute("SELECT email, access_token FROM accounts WHERE id = ?", (account_id,))
     row = c.fetchone()
     conn.close()
     
@@ -484,7 +563,7 @@ def mark_as_read(account_id, message_id):
         flash('Account not found', 'error')
         return redirect(url_for('dashboard'))
     
-    access_token = row[0]  # Token is already plain text
+    email, access_token = row  # Token is already plain text
     
     if not access_token:
         flash('Not signed in or token expired', 'error')
@@ -503,6 +582,15 @@ def mark_as_read(account_id, message_id):
         }
         
         response = requests.patch(url, headers=headers, json=data)
+        
+        # If token expired, try to refresh it
+        if response.status_code == 401:
+            print(f"Token expired for {email}, attempting refresh...")
+            new_access_token = refresh_token(account_id)
+            if new_access_token:
+                # Retry with new token
+                headers['Authorization'] = f'Bearer {new_access_token}'
+                response = requests.patch(url, headers=headers, json=data)
         
         if response.status_code in [200, 204]:
             # Successfully marked as read, now redirect to view the email
