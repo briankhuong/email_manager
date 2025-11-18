@@ -25,80 +25,112 @@ class AutomationEngine:
         }
         self.workers = {}
         
-    def process_accounts_batch(self, accounts_file):
-        """Process accounts in parallel with proxies"""
-        self.is_running = True
-        self.is_paused = False
-        self.current_job_id = str(uuid.uuid4())
-        self.status = {
-            'total_accounts': 0,
-            'processed_accounts': 0,
-            'successful_logins': 0,
-            'failed_logins': 0,
-            'captcha_count': 0,
-            'start_time': datetime.now().isoformat(),
-            'current_worker': 'Initializing...'
-        }
+    
+def process_accounts_batch(self, accounts_file):
+    """Process accounts in parallel with proxies"""
+    print("🚀 AUTOMATION STARTED - DEBUG")
+    
+    # Debug: Test basic functionality
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        print("✅ Selenium imports work")
+        
+        # Test ChromeDriver
+        chrome_options = Options()
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--headless')  # Add headless for Railway
         
         try:
-            # Load accounts using CSV (no pandas dependency)
-            accounts = []
-            with open(accounts_file, 'r') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    accounts.append(row)
-            
-            self.status['total_accounts'] = len(accounts)
-            
-            # Get available proxies
-            proxies = self.proxy_manager.get_proxies()
-            if not proxies:
-                self.telegram_notifier.send_alert("❌ No proxies available for automation")
-                return
-            
-            # Distribute accounts across proxies
-            accounts_per_proxy = len(accounts) // len(proxies)
-            extra_accounts = len(accounts) % len(proxies)
-            
-            # Start worker threads
-            threads = []
-            account_index = 0
-            
-            for i, proxy in enumerate(proxies):
-                worker_accounts = accounts_per_proxy
-                if i < extra_accounts:
-                    worker_accounts += 1
-                
-                if account_index < len(accounts):
-                    worker_accounts_list = accounts[account_index:account_index + worker_accounts]
-                    account_index += worker_accounts
-                    
-                    thread = threading.Thread(
-                        target=self._worker_process,
-                        args=(f"worker_{i}", proxy, worker_accounts_list)
-                    )
-                    thread.daemon = True
-                    threads.append(thread)
-                    thread.start()
-                    
-                    # Staggered start - 45 seconds between workers
-                    time.sleep(45)
-            
-            # Wait for all threads to complete
-            for thread in threads:
-                thread.join()
-                
+            driver = webdriver.Chrome(options=chrome_options)
+            print("✅ ChromeDriver works - browser started")
+            driver.quit()
+            print("✅ Browser closed successfully")
         except Exception as e:
-            self.telegram_notifier.send_alert(f"❌ Automation error: {str(e)}")
-        finally:
-            self.is_running = False
-            self._generate_results_file()
-            self.telegram_notifier.send_alert(
-                f"✅ Automation completed!\n"
-                f"Success: {self.status['successful_logins']}\n"
-                f"Failed: {self.status['failed_logins']}\n"
-                f"Captchas: {self.status['captcha_count']}"
-            )
+            print(f"❌ ChromeDriver failed: {e}")
+            self.telegram_notifier.send_alert(f"❌ ChromeDriver failed: {e}")
+            return
+            
+    except Exception as e:
+        print(f"❌ Selenium setup failed: {e}")
+        self.telegram_notifier.send_alert(f"❌ Automation setup failed: {e}")
+        return
+    
+    # Continue with normal automation
+    self.is_running = True
+    self.is_paused = False
+    self.current_job_id = str(uuid.uuid4())
+    self.status = {
+        'total_accounts': 0,
+        'processed_accounts': 0,
+        'successful_logins': 0,
+        'failed_logins': 0,
+        'captcha_count': 0,
+        'start_time': datetime.now().isoformat(),
+        'current_worker': 'Initializing...'
+    }
+    
+    try:
+        # Load accounts using CSV (no pandas dependency)
+        accounts = []
+        with open(accounts_file, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                accounts.append(row)
+        
+        self.status['total_accounts'] = len(accounts)
+        
+        # Get available proxies
+        proxies = self.proxy_manager.get_proxies()
+        if not proxies:
+            self.telegram_notifier.send_alert("❌ No proxies available for automation")
+            return
+        
+        # Distribute accounts across proxies
+        accounts_per_proxy = len(accounts) // len(proxies)
+        extra_accounts = len(accounts) % len(proxies)
+        
+        # Start worker threads
+        threads = []
+        account_index = 0
+        
+        for i, proxy in enumerate(proxies):
+            worker_accounts = accounts_per_proxy
+            if i < extra_accounts:
+                worker_accounts += 1
+            
+            if account_index < len(accounts):
+                worker_accounts_list = accounts[account_index:account_index + worker_accounts]
+                account_index += worker_accounts
+                
+                thread = threading.Thread(
+                    target=self._worker_process,
+                    args=(f"worker_{i}", proxy, worker_accounts_list)
+                )
+                thread.daemon = True
+                threads.append(thread)
+                thread.start()
+                
+                # Staggered start - 45 seconds between workers
+                time.sleep(45)
+        
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+            
+    except Exception as e:
+        self.telegram_notifier.send_alert(f"❌ Automation error: {str(e)}")
+    finally:
+        self.is_running = False
+        self._generate_results_file()
+        self.telegram_notifier.send_alert(
+            f"✅ Automation completed!\n"
+            f"Success: {self.status['successful_logins']}\n"
+            f"Failed: {self.status['failed_logins']}\n"
+            f"Captchas: {self.status['captcha_count']}"
+        )
+
     
     def _worker_process(self, worker_id, proxy, accounts):
         """Process accounts for a single worker"""
