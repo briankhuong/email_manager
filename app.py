@@ -181,44 +181,61 @@ def get_token_from_code(code):
     )
     return result
 
+
 def refresh_token(account_id):
-    """Refresh access token using refresh token"""
+    """Refresh access token using refresh token - FIXED VERSION"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
     c = conn.cursor()
     c.execute("SELECT email, refresh_token FROM accounts WHERE id = ?", (account_id,))
     row = c.fetchone()
     
     if not row or not row[1]:
+        conn.close()
         return None
         
     email, refresh_token_value = row
     
     if not refresh_token_value:
+        conn.close()
         return None
     
     try:
-        result = get_msal_app().acquire_token_by_refresh_token(
+        # Use the confidential client app correctly
+        app_instance = get_msal_app()
+        
+        # Use refresh token to get new tokens
+        result = app_instance.acquire_token_by_refresh_token(
             refresh_token_value,
             scopes=app.config['SCOPE']
         )
         
         if 'access_token' in result:
             access_token = result['access_token']
+            # Get new refresh token if provided, otherwise keep old one
             new_refresh_token = result.get('refresh_token', refresh_token_value)
             
+            # Update tokens in database
             c.execute('''
                 UPDATE accounts 
-                SET access_token = ?, refresh_token = ?, last_error = NULL
+                SET access_token = ?, refresh_token = ?, last_error = NULL,
+                    last_checked = datetime('now')
                 WHERE id = ?
             ''', (access_token, new_refresh_token, account_id))
             conn.commit()
             conn.close()
+            
+            print(f"✅ Token refreshed successfully for {email}")
             return access_token
         else:
+            # Token refresh failed - clear invalid tokens
             error_msg = f"Token refresh failed: {result.get('error_description', 'Unknown error')}"
+            print(f"❌ Token refresh error for {email}: {error_msg}")
+            
+            # Clear invalid tokens and mark as signed out
             c.execute('''
                 UPDATE accounts 
-                SET last_error = ?
+                SET access_token = NULL, refresh_token = NULL, 
+                    is_signed_in = 0, last_error = ?
                 WHERE id = ?
             ''', (error_msg, account_id))
             conn.commit()
@@ -227,6 +244,9 @@ def refresh_token(account_id):
             
     except Exception as e:
         error_msg = f"Token refresh exception: {str(e)}"
+        print(f"❌ Token refresh exception for {email}: {error_msg}")
+        
+        # Update error in database
         c.execute('''
             UPDATE accounts 
             SET last_error = ?
