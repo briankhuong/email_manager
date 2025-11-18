@@ -9,10 +9,6 @@ import msal
 import json
 import base64
 from functools import wraps
-import threading
-from automation_engine import AutomationEngine
-from proxy_manager import ProxyManager
-from telegram_alerts import TelegramNotifier
 import uuid
 import csv
 from io import StringIO
@@ -21,10 +17,31 @@ app = Flask(__name__)
 app.config.from_object(Config)
 app.secret_key = app.config['SECRET_KEY']
 
-# Initialize managers
-proxy_manager = ProxyManager()
-telegram_notifier = TelegramNotifier()
-automation_engine = AutomationEngine(proxy_manager, telegram_notifier)
+# Initialize managers lazily to avoid circular imports
+proxy_manager = None
+telegram_notifier = None
+automation_engine = None
+
+def get_proxy_manager():
+    global proxy_manager
+    if proxy_manager is None:
+        from proxy_manager import ProxyManager
+        proxy_manager = ProxyManager()
+    return proxy_manager
+
+def get_telegram_notifier():
+    global telegram_notifier
+    if telegram_notifier is None:
+        from telegram_alerts import TelegramNotifier
+        telegram_notifier = TelegramNotifier()
+    return telegram_notifier
+
+def get_automation_engine():
+    global automation_engine
+    if automation_engine is None:
+        from automation_engine import AutomationEngine
+        automation_engine = AutomationEngine(get_proxy_manager(), get_telegram_notifier())
+    return automation_engine
 
 # Simple password protection
 APP_USERNAME = "lbasapp"
@@ -382,7 +399,7 @@ def batch_upload():
             proxies_file = request.files['proxies_file']
             if proxies_file.filename != '':
                 try:
-                    proxy_manager.load_proxies_from_file(proxies_file)
+                    get_proxy_manager().load_proxies_from_file(proxies_file)
                     flash('Proxies uploaded successfully!', 'success')
                 except Exception as e:
                     flash(f'Error uploading proxies: {str(e)}', 'error')
@@ -429,9 +446,10 @@ def start_automation():
     upload_file = session['current_upload']
     
     try:
+        import threading
         # Start automation in background thread
         thread = threading.Thread(
-            target=automation_engine.process_accounts_batch,
+            target=get_automation_engine().process_accounts_batch,
             args=(upload_file,)
         )
         thread.daemon = True
@@ -440,7 +458,7 @@ def start_automation():
         return jsonify({
             'success': True,
             'message': f'Automation started for {session["upload_count"]} accounts',
-            'job_id': automation_engine.current_job_id
+            'job_id': get_automation_engine().current_job_id
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -449,27 +467,27 @@ def start_automation():
 @login_required
 def automation_status():
     """Get current automation status"""
-    return jsonify(automation_engine.get_status())
+    return jsonify(get_automation_engine().get_status())
 
 @app.route('/pause_automation', methods=['POST'])
 @login_required
 def pause_automation():
     """Pause automation"""
-    automation_engine.pause()
+    get_automation_engine().pause()
     return jsonify({'success': True, 'message': 'Automation paused'})
 
 @app.route('/resume_automation', methods=['POST'])
 @login_required
 def resume_automation():
     """Resume automation"""
-    automation_engine.resume()
+    get_automation_engine().resume()
     return jsonify({'success': True, 'message': 'Automation resumed'})
 
 @app.route('/download_results')
 @login_required
 def download_results():
     """Download processing results"""
-    results_file = automation_engine.get_results_file()
+    results_file = get_automation_engine().get_results_file()
     if results_file and os.path.exists(results_file):
         return redirect(f'/static/{results_file}')
     else:
@@ -804,7 +822,7 @@ def telegram_settings():
         chat_id = request.form.get('chat_id')
         
         try:
-            telegram_notifier.setup(bot_token, chat_id)
+            get_telegram_notifier().setup(bot_token, chat_id)
             flash('Telegram settings saved successfully!', 'success')
         except Exception as e:
             flash(f'Error saving Telegram settings: {str(e)}', 'error')
