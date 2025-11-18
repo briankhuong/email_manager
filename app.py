@@ -123,6 +123,44 @@ def get_status_badge(unread_count, last_error, is_signed_in):
     else:
         return '🔵'
 
+def migrate_database():
+    """Add new columns to existing database safely"""
+    conn = sqlite3.connect(app.config['DATABASE_FILE'])
+    c = conn.cursor()
+    
+    # Check if new columns already exist
+    c.execute("PRAGMA table_info(accounts)")
+    columns = [column[1] for column in c.fetchall()]
+    
+    # Add missing columns
+    new_columns = [
+        'date_added',
+        'login_count', 
+        'failure_count',
+        'proxy_slot',
+        'account_status'
+    ]
+    
+    for column in new_columns:
+        if column not in columns:
+            print(f"Adding column: {column}")
+            if column == 'date_added':
+                c.execute(f'ALTER TABLE accounts ADD COLUMN {column} DATETIME DEFAULT CURRENT_TIMESTAMP')
+            elif column in ['login_count', 'failure_count']:
+                c.execute(f'ALTER TABLE accounts ADD COLUMN {column} INTEGER DEFAULT 0')
+            elif column == 'proxy_slot':
+                c.execute(f'ALTER TABLE accounts ADD COLUMN {column} TEXT')
+            elif column == 'account_status':
+                c.execute(f'ALTER TABLE accounts ADD COLUMN {column} TEXT DEFAULT "active"')
+    
+    conn.commit()
+    conn.close()
+    print("Database migration completed!")
+
+# Initialize database and run migration
+init_db()
+migrate_database()
+
 # ==================== EXISTING FUNCTIONALITY (PRESERVED) ====================
 
 def get_msal_app():
