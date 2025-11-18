@@ -3,55 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hotmail/Outlook Account Manager</title>
+    <title>Email Manager - Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        .account-card { 
-            transition: all 0.3s; 
-            border: 1px solid #e0e0e0;
-        }
-        .account-card:hover { 
-            transform: translateY(-2px); 
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1); 
-        }
-        .unread-badge { 
-            font-size: 0.9em; 
-        }
-        .status-indicator { 
-            width: 10px; 
-            height: 10px; 
-            border-radius: 50%; 
-            display: inline-block; 
-        }
-        .status-online { 
-            background-color: #28a745; 
-        }
-        .status-offline { 
-            background-color: #6c757d; 
-        }
-        .status-error { 
-            background-color: #dc3545; 
-        }
-        .email-text {
-            word-break: break-all;
-        }
-        .clickable-email {
-            cursor: pointer;
-            transition: color 0.2s;
-        }
-        .clickable-email:hover {
-            color: #007bff !important;
-        }
+        .compact-table th { font-size: 0.9rem; padding: 8px 12px; }
+        .compact-table td { font-size: 0.85rem; padding: 8px 12px; vertical-align: middle; }
+        .email-cell { max-width: 250px; word-break: break-all; }
+        .status-badge { font-size: 0.8rem; }
+        .unread-count { min-width: 60px; }
+        .action-buttons { min-width: 120px; }
+        .bulk-selector { width: 30px; }
+        .search-box { max-width: 300px; }
+        .stats-card { transition: all 0.3s; }
+        .stats-card:hover { transform: translateY(-2px); }
+        .clickable-email { cursor: pointer; color: #0d6efd; }
+        .clickable-email:hover { text-decoration: underline; }
+        .filter-active { background-color: #0d6efd !important; color: white !important; }
+        .pagination .page-link { font-size: 0.8rem; padding: 4px 8px; }
     </style>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
-            <a class="navbar-brand" href="{{ url_for('dashboard') }}">📧 Email Manager</a>
+            <a class="navbar-brand" href="{{ url_for('dashboard') }}">
+                <i class="fas fa-envelope me-2"></i>Email Manager
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a href="{{ url_for('batch_upload') }}" class="btn btn-light btn-sm me-2">
+                    <i class="fas fa-upload me-1"></i>Batch Upload
+                </a>
+                <a href="{{ url_for('telegram_settings') }}" class="btn btn-outline-light btn-sm me-2">
+                    <i class="fab fa-telegram me-1"></i>Telegram
+                </a>
+                <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm">
+                    <i class="fas fa-sign-out-alt me-1"></i>Logout
+                </a>
+            </div>
         </div>
     </nav>
 
-    <div class="container mt-4">
+    <div class="container-fluid mt-4">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
@@ -63,86 +55,359 @@
             {% endif %}
         {% endwith %}
 
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1>Hotmail/Outlook Accounts</h1>
-            <div>
-                <a href="{{ url_for('add_account') }}" class="btn btn-primary me-2">Add Account</a>
-                <a href="{{ url_for('sign_out_all') }}" class="btn btn-warning" onclick="return confirm('Sign out all accounts?')">Sign Out All</a>
+        <!-- Dashboard Stats -->
+        <div class="row mb-4">
+            <div class="col-md-2">
+                <div class="card stats-card bg-primary text-white">
+                    <div class="card-body text-center">
+                        <h4 class="mb-0">{{ stats.total }}</h4>
+                        <small>Total Accounts</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card stats-card bg-success text-white">
+                    <div class="card-body text-center">
+                        <h4 class="mb-0">{{ stats.active }}</h4>
+                        <small>Active</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card stats-card bg-danger text-white">
+                    <div class="card-body text-center">
+                        <h4 class="mb-0">{{ stats.failed }}</h4>
+                        <small>Failed</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card stats-card bg-warning text-white">
+                    <div class="card-body text-center">
+                        <h4 class="mb-0">{{ stats.inactive }}</h4>
+                        <small>Inactive</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card stats-card bg-info text-white">
+                    <div class="card-body text-center">
+                        <h4 class="mb-0">{{ stats.total_unread }}</h4>
+                        <small>Unread Emails</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card stats-card bg-secondary text-white">
+                    <div class="card-body text-center">
+                        <a href="{{ url_for('add_account') }}" class="btn btn-light btn-sm w-100">
+                            <i class="fas fa-plus me-1"></i>Add Account
+                        </a>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <div class="row">
-            {% for account in accounts %}
-            <div class="col-md-6 col-lg-4 mb-3">
-                <div class="card account-card h-100">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-start mb-2">
-                            <h6 class="card-title email-text">
-                                <a href="{{ url_for('view_emails', account_id=account.id) }}" 
-                                   class="text-decoration-none text-dark clickable-email">
-                                    {{ account.email }}
-                                </a>
-                            </h6>
-                            <span class="status-indicator {{ 'status-online' if account.is_signed_in and not account.last_error else 'status-error' if account.last_error else 'status-offline' }}"></span>
+        <!-- Search and Filters -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row g-3 align-items-center">
+                    <div class="col-md-4">
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="fas fa-search"></i></span>
+                            <input type="text" class="form-control search-box" id="searchInput" 
+                                   placeholder="Search accounts..." value="{{ search_query }}">
                         </div>
-                        
-                        <div class="mb-2">
-                            {% if account.unread_count > 0 %}
-                                <a href="{{ url_for('view_emails', account_id=account.id) }}" 
-                                   class="badge bg-danger unread-badge text-decoration-none">
-                                    {{ account.unread_count }} unread email{% if account.unread_count != 1 %}s{% endif %}
-                                </a>
-                            {% else %}
-                                <span class="badge bg-secondary unread-badge">No new emails</span>
-                            {% endif %}
-                        </div>
-                        
-                        <p class="card-text small text-muted mb-1">
-                            Last checked: 
-                            {% if account.last_checked %}
-                                {{ account.last_checked[:16] }}
-                            {% else %}
-                                Never
-                            {% endif %}
-                        </p>
-                        
-                        {% if account.last_error %}
-                        <div class="alert alert-warning small py-2 mb-2">
-                            <strong>Error:</strong> {{ account.last_error }}
-                        </div>
-                        {% endif %}
                     </div>
-                    <div class="card-footer">
-                        <div class="btn-group w-100">
-                            {% if account.is_signed_in %}
-                                <a href="{{ url_for('sign_out', account_id=account.id) }}" class="btn btn-outline-warning btn-sm">Sign Out</a>
-                            {% else %}
-                                <a href="{{ url_for('sign_in', account_id=account.id) }}" class="btn btn-outline-success btn-sm">Sign In</a>
-                            {% endif %}
-                            <a href="{{ url_for('delete_account', account_id=account.id) }}" class="btn btn-outline-danger btn-sm" onclick="return confirm('Are you sure you want to delete {{ account.email }}?')">Delete</a>
+                    <div class="col-md-6">
+                        <div class="btn-group">
+                            <a href="{{ url_for('dashboard', status='all') }}" 
+                               class="btn btn-outline-primary {{ 'filter-active' if status_filter == 'all' else '' }}">
+                                All ({{ stats.total }})
+                            </a>
+                            <a href="{{ url_for('dashboard', status='active') }}" 
+                               class="btn btn-outline-success {{ 'filter-active' if status_filter == 'active' else '' }}">
+                                Active ({{ stats.active }})
+                            </a>
+                            <a href="{{ url_for('dashboard', status='failed') }}" 
+                               class="btn btn-outline-danger {{ 'filter-active' if status_filter == 'failed' else '' }}">
+                                Failed ({{ stats.failed }})
+                            </a>
+                            <a href="{{ url_for('dashboard', status='inactive') }}" 
+                               class="btn btn-outline-warning {{ 'filter-active' if status_filter == 'inactive' else '' }}">
+                                Inactive ({{ stats.inactive }})
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-md-2 text-end">
+                        <a href="{{ url_for('sign_out_all') }}" class="btn btn-warning btn-sm" 
+                           onclick="return confirm('Sign out all accounts?')">
+                            <i class="fas fa-sign-out-alt me-1"></i>Sign Out All
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bulk Actions Toolbar -->
+        <div class="card mb-3" id="bulkActionsToolbar" style="display: none;">
+            <div class="card-body py-2">
+                <div class="row align-items-center">
+                    <div class="col-md-6">
+                        <span id="selectedCount">0 accounts selected</span>
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <div class="btn-group">
+                            <button class="btn btn-outline-primary btn-sm" onclick="bulkAction('refresh')">
+                                <i class="fas fa-sync me-1"></i>Refresh
+                            </button>
+                            <button class="btn btn-outline-success btn-sm" onclick="bulkAction('sign_in')">
+                                <i class="fas fa-sign-in-alt me-1"></i>Sign In
+                            </button>
+                            <button class="btn btn-outline-warning btn-sm" onclick="bulkAction('sign_out')">
+                                <i class="fas fa-sign-out-alt me-1"></i>Sign Out
+                            </button>
+                            <button class="btn btn-outline-danger btn-sm" onclick="bulkAction('delete')">
+                                <i class="fas fa-trash me-1"></i>Delete
+                            </button>
                         </div>
                     </div>
                 </div>
             </div>
-            {% else %}
-            <div class="col-12">
-                <div class="alert alert-info text-center">
-                    <h4>No accounts added yet</h4>
-                    <p class="mb-0">Click the "Add Account" button to add your first Hotmail/Outlook account.</p>
-                </div>
-            </div>
-            {% endfor %}
         </div>
 
-        {% if accounts %}
-        <div class="mt-4 text-center text-muted">
-            <small>Emails are checked automatically when you add each account.</small>
-            <br>
-            <small>Click on any email address or unread count to view emails.</small>
+        <!-- Accounts Table -->
+        <div class="card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover compact-table mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="bulk-selector">
+                                    <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)">
+                                </th>
+                                <th>Email Address</th>
+                                <th class="text-center">Status</th>
+                                <th class="text-center">Unread</th>
+                                <th>Last Checked</th>
+                                <th>Login Count</th>
+                                <th class="text-center">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for account in accounts %}
+                            <tr>
+                                <td>
+                                    <input type="checkbox" class="account-checkbox" value="{{ account.id }}" 
+                                           onchange="updateBulkActions()">
+                                </td>
+                                <td class="email-cell">
+                                    <a href="{{ url_for('view_emails', account_id=account.id) }}" 
+                                       class="clickable-email text-decoration-none" title="View emails">
+                                        {{ account.email }}
+                                    </a>
+                                    {% if account.last_error %}
+                                    <br><small class="text-danger">{{ account.last_error|truncate(50) }}</small>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    <span class="status-badge" title="
+                                        {% if account.last_error %}Error: {{ account.last_error }}
+                                        {% elif not account.is_signed_in %}Signed out
+                                        {% elif account.unread_count > 0 %}Active with unread emails
+                                        {% else %}Active, no unread emails{% endif %}">
+                                        {{ account.status_badge }}
+                                    </span>
+                                </td>
+                                <td class="text-center unread-count">
+                                    {% if account.unread_count > 0 %}
+                                    <a href="{{ url_for('view_emails', account_id=account.id) }}" 
+                                       class="badge bg-danger text-decoration-none">
+                                        {{ account.unread_count }}
+                                    </a>
+                                    {% else %}
+                                    <span class="badge bg-secondary">0</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if account.last_checked %}
+                                    <small>{{ account.last_checked[:16] }}</small>
+                                    {% else %}
+                                    <small class="text-muted">Never</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <small>
+                                        <i class="fas fa-sign-in-alt text-success me-1"></i>{{ account.login_count }}
+                                        {% if account.failure_count > 0 %}
+                                        <i class="fas fa-times text-danger ms-2 me-1"></i>{{ account.failure_count }}
+                                        {% endif %}
+                                    </small>
+                                </td>
+                                <td class="text-center action-buttons">
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{{ url_for('view_emails', account_id=account.id) }}" 
+                                           class="btn btn-outline-primary" title="View emails">
+                                            <i class="fas fa-envelope"></i>
+                                        </a>
+                                        {% if account.is_signed_in %}
+                                        <a href="{{ url_for('sign_out', account_id=account.id) }}" 
+                                           class="btn btn-outline-warning" title="Sign out">
+                                            <i class="fas fa-sign-out-alt"></i>
+                                        </a>
+                                        {% else %}
+                                        <a href="{{ url_for('sign_in', account_id=account.id) }}" 
+                                           class="btn btn-outline-success" title="Sign in">
+                                            <i class="fas fa-sign-in-alt"></i>
+                                        </a>
+                                        {% endif %}
+                                        <a href="{{ url_for('delete_account', account_id=account.id) }}" 
+                                           class="btn btn-outline-danger" 
+                                           onclick="return confirm('Delete {{ account.email }}?')"
+                                           title="Delete account">
+                                            <i class="fas fa-trash"></i>
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="7" class="text-center py-4">
+                                    <div class="text-muted">
+                                        <i class="fas fa-inbox fa-3x mb-3"></i>
+                                        <h5>No accounts found</h5>
+                                        <p>Add your first account to get started</p>
+                                        <a href="{{ url_for('add_account') }}" class="btn btn-primary">
+                                            <i class="fas fa-plus me-1"></i>Add Account
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
+
+        <!-- Pagination -->
+        {% if total_pages > 1 %}
+        <nav class="mt-4">
+            <ul class="pagination justify-content-center">
+                {% if current_page > 1 %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('dashboard', page=current_page-1, status=status_filter, search=search_query) }}">
+                        Previous
+                    </a>
+                </li>
+                {% endif %}
+
+                {% for page_num in range(1, total_pages + 1) %}
+                    {% if page_num == current_page %}
+                    <li class="page-item active">
+                        <span class="page-link">{{ page_num }}</span>
+                    </li>
+                    {% else %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('dashboard', page=page_num, status=status_filter, search=search_query) }}">
+                            {{ page_num }}
+                        </a>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if current_page < total_pages %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('dashboard', page=current_page+1, status=status_filter, search=search_query) }}">
+                        Next
+                    </a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
         {% endif %}
+
+        <div class="mt-3 text-center text-muted">
+            <small>
+                Showing {{ accounts|length }} of {{ stats.total }} accounts
+                {% if search_query %}matching "{{ search_query }}"{% endif %}
+            </small>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Search functionality
+        document.getElementById('searchInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                const searchQuery = this.value;
+                const url = new URL(window.location.href);
+                url.searchParams.set('search', searchQuery);
+                url.searchParams.set('page', '1');
+                window.location.href = url.toString();
+            }
+        });
+
+        // Bulk selection functionality
+        function toggleSelectAll(checkbox) {
+            const checkboxes = document.querySelectorAll('.account-checkbox');
+            checkboxes.forEach(cb => cb.checked = checkbox.checked);
+            updateBulkActions();
+        }
+
+        function updateBulkActions() {
+            const selected = document.querySelectorAll('.account-checkbox:checked');
+            const toolbar = document.getElementById('bulkActionsToolbar');
+            const countSpan = document.getElementById('selectedCount');
+            
+            if (selected.length > 0) {
+                toolbar.style.display = 'block';
+                countSpan.textContent = `${selected.length} account${selected.length > 1 ? 's' : ''} selected`;
+            } else {
+                toolbar.style.display = 'none';
+            }
+        }
+
+        function bulkAction(action) {
+            const selected = Array.from(document.querySelectorAll('.account-checkbox:checked'))
+                                .map(cb => cb.value);
+            
+            if (selected.length === 0) {
+                alert('Please select at least one account');
+                return;
+            }
+
+            if (action === 'delete' && !confirm(`Are you sure you want to delete ${selected.length} account(s)?`)) {
+                return;
+            }
+
+            fetch('/bulk_action', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    account_ids: selected,
+                    action: action
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('Error: ' + error);
+            });
+        }
+
+        // Auto-refresh page every 5 minutes
+        setTimeout(function() {
+            window.location.reload();
+        }, 300000);
+    </script>
 </body>
 </html>
