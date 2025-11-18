@@ -873,6 +873,26 @@ def mark_as_read(account_id, message_id):
         return redirect(url_for('view_email', account_id=account_id, message_id=message_id))
 
 # ==================== NEW TELEGRAM SETTINGS ROUTE ====================
+@app.route('/debug-automation')
+@login_required
+def debug_automation():
+    """Debug automation engine status"""
+    import inspect
+    from automation_engine import AutomationEngine
+    
+    result = {
+        'automation_engine_methods': [],
+        'has_process_accounts_batch': False
+    }
+    
+    # Check methods
+    methods = [method for method in dir(AutomationEngine) if not method.startswith('_')]
+    result['automation_engine_methods'] = methods
+    result['has_process_accounts_batch'] = 'process_accounts_batch' in methods
+    
+    return jsonify(result)
+
+
 
 @app.route('/telegram_settings', methods=['GET', 'POST'])
 @login_required
