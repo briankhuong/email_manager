@@ -925,34 +925,6 @@ def debug_files():
     return jsonify(result)
 
 
-@app.route('/debug-import')
-@login_required
-def debug_import():
-    """Debug import issues"""
-    import sys
-    result = {'errors': []}
-    
-    try:
-        # Try to import and instantiate
-        from automation_engine import AutomationEngine
-        result['import_success'] = True
-    except Exception as e:
-        result['import_success'] = False
-        result['import_error'] = str(e)
-        result['errors'].append(f"Import failed: {e}")
-    
-    try:
-        # Try to check methods if import worked
-        if result.get('import_success'):
-            methods = [m for m in dir(AutomationEngine) if not m.startswith('_')]
-            result['methods'] = methods
-            result['has_process_method'] = 'process_accounts_batch' in methods
-    except Exception as e:
-        result['methods_error'] = str(e)
-        result['errors'].append(f"Methods check failed: {e}")
-    
-    return jsonify(result)
-
 # KEEP THE EXISTING debug-automation route below this
 @app.route('/debug-automation')
 @login_required
