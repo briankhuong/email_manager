@@ -145,14 +145,17 @@ def migrate_database():
         if column not in columns:
             print(f"Adding column: {column}")
             if column == 'date_added':
-                c.execute(f'ALTER TABLE accounts ADD COLUMN {column} DATETIME DEFAULT CURRENT_TIMESTAMP')
+                # SQLite doesn't allow CURRENT_TIMESTAMP for new columns in existing tables
+                c.execute(f'ALTER TABLE accounts ADD COLUMN {column} DATETIME')
+                # Set default value for existing rows
+                c.execute(f'UPDATE accounts SET {column} = datetime("now") WHERE {column} IS NULL')
             elif column in ['login_count', 'failure_count']:
                 c.execute(f'ALTER TABLE accounts ADD COLUMN {column} INTEGER DEFAULT 0')
             elif column == 'proxy_slot':
                 c.execute(f'ALTER TABLE accounts ADD COLUMN {column} TEXT')
             elif column == 'account_status':
                 c.execute(f'ALTER TABLE accounts ADD COLUMN {column} TEXT DEFAULT "active"')
-    
+
     conn.commit()
     conn.close()
     print("Database migration completed!")
