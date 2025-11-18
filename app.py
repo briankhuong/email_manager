@@ -17,31 +17,14 @@ app = Flask(__name__)
 app.config.from_object(Config)
 app.secret_key = app.config['SECRET_KEY']
 
-# Initialize managers lazily to avoid circular imports
-proxy_manager = None
-telegram_notifier = None
-automation_engine = None
+# Initialize managers
+from proxy_manager import ProxyManager
+from telegram_alerts import TelegramNotifier
+from automation_engine import AutomationEngine
 
-def get_proxy_manager():
-    global proxy_manager
-    if proxy_manager is None:
-        from proxy_manager import ProxyManager
-        proxy_manager = ProxyManager()
-    return proxy_manager
-
-def get_telegram_notifier():
-    global telegram_notifier
-    if telegram_notifier is None:
-        from telegram_alerts import TelegramNotifier
-        telegram_notifier = TelegramNotifier()
-    return telegram_notifier
-
-def get_automation_engine():
-    global automation_engine
-    if automation_engine is None:
-        from automation_engine import AutomationEngine
-        automation_engine = AutomationEngine(get_proxy_manager(), get_telegram_notifier())
-    return automation_engine
+proxy_manager = ProxyManager()
+telegram_notifier = TelegramNotifier()
+automation_engine = AutomationEngine(proxy_manager, telegram_notifier)
 
 # Simple password protection
 APP_USERNAME = "lbasapp"
