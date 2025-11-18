@@ -117,9 +117,7 @@ def migrate_database():
         if column not in columns:
             print(f"Adding column: {column}")
             if column == 'date_added':
-                # SQLite doesn't allow CURRENT_TIMESTAMP for new columns in existing tables
                 c.execute(f'ALTER TABLE accounts ADD COLUMN {column} DATETIME')
-                # Set default value for existing rows
                 c.execute(f'UPDATE accounts SET {column} = datetime("now") WHERE {column} IS NULL')
             elif column in ['login_count', 'failure_count']:
                 c.execute(f'ALTER TABLE accounts ADD COLUMN {column} INTEGER DEFAULT 0')
@@ -135,8 +133,6 @@ def migrate_database():
 # Initialize database and run migration
 init_db()
 migrate_database()
-
-# ==================== EXISTING FUNCTIONALITY (PRESERVED) ====================
 
 def get_msal_app():
     return msal.ConfidentialClientApplication(
@@ -171,10 +167,7 @@ def refresh_token(account_id):
         return None
     
     try:
-        # Use the confidential client app correctly
         app_instance = get_msal_app()
-        
-        # Use refresh token to get new tokens
         result = app_instance.acquire_token_by_refresh_token(
             refresh_token_value,
             scopes=app.config['SCOPE']
@@ -182,10 +175,8 @@ def refresh_token(account_id):
         
         if 'access_token' in result:
             access_token = result['access_token']
-            # Get new refresh token if provided, otherwise keep old one
             new_refresh_token = result.get('refresh_token', refresh_token_value)
             
-            # Update tokens in database
             c.execute('''
                 UPDATE accounts 
                 SET access_token = ?, refresh_token = ?, last_error = NULL,
@@ -198,11 +189,9 @@ def refresh_token(account_id):
             print(f"✅ Token refreshed successfully for {email}")
             return access_token
         else:
-            # Token refresh failed - clear invalid tokens
             error_msg = f"Token refresh failed: {result.get('error_description', 'Unknown error')}"
             print(f"❌ Token refresh error for {email}: {error_msg}")
             
-            # Clear invalid tokens and mark as signed out
             c.execute('''
                 UPDATE accounts 
                 SET access_token = NULL, refresh_token = NULL, 
@@ -217,7 +206,6 @@ def refresh_token(account_id):
         error_msg = f"Token refresh exception: {str(e)}"
         print(f"❌ Token refresh exception for {email}: {error_msg}")
         
-        # Update error in database
         c.execute('''
             UPDATE accounts 
             SET last_error = ?
@@ -326,8 +314,6 @@ def callback():
     
     return dashboard()
 
-# ==================== ENHANCED DASHBOARD WITH COMPACT VIEW ====================
-
 def get_status_badge(unread_count, last_error, is_signed_in):
     """Get status badge for account"""
     if last_error:
@@ -343,7 +329,6 @@ def get_status_badge(unread_count, last_error, is_signed_in):
 @login_required
 def dashboard():
     """Display the accounts dashboard with compact list view"""
-    # Get filter parameters
     status_filter = request.args.get('status', 'all')
     search_query = request.args.get('search', '')
     page = int(request.args.get('page', 1))
@@ -352,7 +337,6 @@ def dashboard():
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
     c = conn.cursor()
     
-    # Build query with filters
     query = '''
         SELECT id, email, is_signed_in, unread_count, last_checked, last_error, 
                date_added, login_count, failure_count, account_status
@@ -374,12 +358,10 @@ def dashboard():
     
     query += ' ORDER BY unread_count DESC, email ASC'
     
-    # Get total count for pagination
     count_query = f'SELECT COUNT(*) FROM ({query})'
     c.execute(count_query, params)
     total_accounts = c.fetchone()[0]
     
-    # Add pagination
     query += ' LIMIT ? OFFSET ?'
     params.extend([per_page, (page - 1) * per_page])
     
@@ -401,7 +383,6 @@ def dashboard():
             'status_badge': get_status_badge(row[3], row[5], row[2])
         })
     
-    # Get dashboard stats
     c.execute('''
         SELECT 
             COUNT(*) as total,
@@ -431,8 +412,6 @@ def dashboard():
                          status_filter=status_filter,
                          search_query=search_query)
 
-# ==================== NEW BATCH PROCESSING ROUTES ====================
-
 @app.route('/batch_upload', methods=['GET', 'POST'])
 @login_required
 def batch_upload():
@@ -451,21 +430,17 @@ def batch_upload():
             accounts_file = request.files['accounts_file']
             if accounts_file.filename != '':
                 try:
-                    # Use CSV for compatibility (no pandas dependency)
                     content = accounts_file.read().decode('utf-8')
                     csv_reader = csv.DictReader(StringIO(content))
                     accounts = list(csv_reader)
                     
-                    # Validate columns
                     if not accounts or 'email' not in accounts[0] or 'password' not in accounts[0]:
                         flash('File must contain "email" and "password" columns', 'error')
                     else:
-                        # Save uploaded accounts
                         upload_id = str(uuid.uuid4())
                         upload_file = f'uploads/accounts_{upload_id}.csv'
                         os.makedirs('uploads', exist_ok=True)
                         
-                        # Write back to CSV
                         with open(upload_file, 'w', newline='') as f:
                             writer = csv.DictWriter(f, fieldnames=['email', 'password'])
                             writer.writeheader()
@@ -490,7 +465,6 @@ def start_automation():
     
     try:
         import threading
-        # Start automation in background thread
         thread = threading.Thread(
             target=automation_engine.process_accounts_batch,
             args=(upload_file,)
@@ -537,8 +511,6 @@ def download_results():
         flash('No results available yet', 'error')
         return redirect(url_for('dashboard'))
 
-# ==================== BULK ACCOUNT MANAGEMENT ====================
-
 @app.route('/bulk_action', methods=['POST'])
 @login_required
 def bulk_action():
@@ -554,7 +526,6 @@ def bulk_action():
     
     try:
         if action == 'refresh':
-            # Update last_checked to force refresh
             c.execute(f'''
                 UPDATE accounts 
                 SET last_checked = NULL 
@@ -594,8 +565,6 @@ def bulk_action():
         conn.close()
     
     return jsonify({'success': True})
-
-# ==================== EXISTING ROUTES (PRESERVED) ====================
 
 @app.route('/login')
 @login_required
@@ -854,8 +823,6 @@ def mark_as_read(account_id, message_id):
         flash(f'Error: {str(e)}', 'error')
         return redirect(url_for('view_email', account_id=account_id, message_id=message_id))
 
-# ==================== NEW TELEGRAM SETTINGS ROUTE ====================
-
 @app.route('/telegram_settings', methods=['GET', 'POST'])
 @login_required
 def telegram_settings():
@@ -872,65 +839,6 @@ def telegram_settings():
     
     return render_template('telegram_settings.html')
 
-@app.route('/debug-files')
-@login_required
-def debug_files():
-    """Emergency file check - CRITICAL"""
-    import os
-    import hashlib
-    
-    result = {
-        'files_exist': {},
-        'file_sizes': {},
-        'file_content_samples': {},
-        'current_directory': os.getcwd(),
-        'directory_listing': []
-    }
-    
-    # Check ALL critical files
-    files_to_check = [
-        'automation_engine.py',
-        'app.py', 
-        'proxy_manager.py',
-        'telegram_alerts.py',
-        'config.py'
-    ]
-    
-    for file in files_to_check:
-        exists = os.path.exists(file)
-        result['files_exist'][file] = exists
-        
-        if exists:
-            result['file_sizes'][file] = os.path.getsize(file)
-            try:
-                with open(file, 'r') as f:
-                    content = f.read(500)  # First 500 chars
-                    result['file_content_samples'][file] = content
-                    
-                    # Check for specific methods
-                    if file == 'automation_engine.py':
-                        result['has_process_method'] = 'def process_accounts_batch' in content
-                        result['has_init_method'] = 'def __init__' in content
-            except Exception as e:
-                result['file_content_samples'][file] = f"Error: {e}"
-        else:
-            result['file_content_samples'][file] = "FILE NOT FOUND"
-    
-    # List directory contents
-    try:
-        result['directory_listing'] = os.listdir('.')
-    except Exception as e:
-        result['directory_listing'] = f"Error: {e}"
-    
-    return jsonify(result)
-
-
-# KEEP THE EXISTING debug-automation route below this
-@app.route('/debug-automation')
-@login_required
-def debug_automation():
-
-
 @app.route('/debug-automation')
 @login_required
 def debug_automation():
@@ -945,12 +853,10 @@ def debug_automation():
     }
     
     try:
-        # Check methods
         methods = [method for method in dir(AutomationEngine) if not method.startswith('_')]
         result['automation_engine_methods'] = methods
         result['has_process_accounts_batch'] = 'process_accounts_batch' in methods
         
-        # Check file content
         if os.path.exists('automation_engine.py'):
             with open('automation_engine.py', 'r') as f:
                 content = f.read()
@@ -962,7 +868,6 @@ def debug_automation():
     return jsonify(result)
 
 if __name__ == '__main__':
-    # Create necessary directories
     os.makedirs('uploads', exist_ok=True)
     os.makedirs('exports', exist_ok=True)
     os.makedirs('logs', exist_ok=True)
