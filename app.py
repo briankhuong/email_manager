@@ -872,6 +872,58 @@ def telegram_settings():
     
     return render_template('telegram_settings.html')
 
+@app.route('/debug-files')
+@login_required
+def debug_files():
+    """Emergency file check - CRITICAL"""
+    import os
+    import hashlib
+    
+    result = {
+        'files_exist': {},
+        'file_sizes': {},
+        'file_content_samples': {},
+        'current_directory': os.getcwd(),
+        'directory_listing': []
+    }
+    
+    # Check ALL critical files
+    files_to_check = [
+        'automation_engine.py',
+        'app.py', 
+        'proxy_manager.py',
+        'telegram_alerts.py',
+        'config.py'
+    ]
+    
+    for file in files_to_check:
+        exists = os.path.exists(file)
+        result['files_exist'][file] = exists
+        
+        if exists:
+            result['file_sizes'][file] = os.path.getsize(file)
+            try:
+                with open(file, 'r') as f:
+                    content = f.read(500)  # First 500 chars
+                    result['file_content_samples'][file] = content
+                    
+                    # Check for specific methods
+                    if file == 'automation_engine.py':
+                        result['has_process_method'] = 'def process_accounts_batch' in content
+                        result['has_init_method'] = 'def __init__' in content
+            except Exception as e:
+                result['file_content_samples'][file] = f"Error: {e}"
+        else:
+            result['file_content_samples'][file] = "FILE NOT FOUND"
+    
+    # List directory contents
+    try:
+        result['directory_listing'] = os.listdir('.')
+    except Exception as e:
+        result['directory_listing'] = f"Error: {e}"
+    
+    return jsonify(result)
+
 @app.route('/debug-automation')
 @login_required
 def debug_automation():
@@ -881,16 +933,27 @@ def debug_automation():
     
     result = {
         'automation_engine_methods': [],
-        'has_process_accounts_batch': False
+        'has_process_accounts_batch': False,
+        'automation_engine_file_exists': os.path.exists('automation_engine.py')
     }
     
-    # Check methods
-    methods = [method for method in dir(AutomationEngine) if not method.startswith('_')]
-    result['automation_engine_methods'] = methods
-    result['has_process_accounts_batch'] = 'process_accounts_batch' in methods
+    try:
+        # Check methods
+        methods = [method for method in dir(AutomationEngine) if not method.startswith('_')]
+        result['automation_engine_methods'] = methods
+        result['has_process_accounts_batch'] = 'process_accounts_batch' in methods
+        
+        # Check file content
+        if os.path.exists('automation_engine.py'):
+            with open('automation_engine.py', 'r') as f:
+                content = f.read()
+                result['file_has_method'] = 'def process_accounts_batch' in content
+                result['file_size'] = len(content)
+    except Exception as e:
+        result['error'] = str(e)
     
     return jsonify(result)
-
+    
 if __name__ == '__main__':
     # Create necessary directories
     os.makedirs('uploads', exist_ok=True)
