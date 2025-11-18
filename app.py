@@ -95,17 +95,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-def get_status_badge(unread_count, last_error, is_signed_in):
-    """Get status badge for account"""
-    if last_error:
-        return '🔴'
-    elif not is_signed_in:
-        return '⚫'
-    elif unread_count > 0:
-        return '🟢'
-    else:
-        return '🔵'
-
 def migrate_database():
     """Add new columns to existing database safely"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -138,7 +127,7 @@ def migrate_database():
                 c.execute(f'ALTER TABLE accounts ADD COLUMN {column} TEXT')
             elif column == 'account_status':
                 c.execute(f'ALTER TABLE accounts ADD COLUMN {column} TEXT DEFAULT "active"')
-
+    
     conn.commit()
     conn.close()
     print("Database migration completed!")
@@ -163,7 +152,6 @@ def get_token_from_code(code):
         redirect_uri=app.config['REDIRECT_URI']
     )
     return result
-
 
 def refresh_token(account_id):
     """Refresh access token using refresh token - FIXED VERSION"""
@@ -340,6 +328,17 @@ def callback():
 
 # ==================== ENHANCED DASHBOARD WITH COMPACT VIEW ====================
 
+def get_status_badge(unread_count, last_error, is_signed_in):
+    """Get status badge for account"""
+    if last_error:
+        return '🔴'
+    elif not is_signed_in:
+        return '⚫'
+    elif unread_count > 0:
+        return '🟢'
+    else:
+        return '🔵'
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
@@ -443,7 +442,7 @@ def batch_upload():
             proxies_file = request.files['proxies_file']
             if proxies_file.filename != '':
                 try:
-                    get_proxy_manager().load_proxies_from_file(proxies_file)
+                    proxy_manager.load_proxies_from_file(proxies_file)
                     flash('Proxies uploaded successfully!', 'success')
                 except Exception as e:
                     flash(f'Error uploading proxies: {str(e)}', 'error')
@@ -493,7 +492,7 @@ def start_automation():
         import threading
         # Start automation in background thread
         thread = threading.Thread(
-            target=get_automation_engine().process_accounts_batch,
+            target=automation_engine.process_accounts_batch,
             args=(upload_file,)
         )
         thread.daemon = True
@@ -502,7 +501,7 @@ def start_automation():
         return jsonify({
             'success': True,
             'message': f'Automation started for {session["upload_count"]} accounts',
-            'job_id': get_automation_engine().current_job_id
+            'job_id': automation_engine.current_job_id
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -511,27 +510,27 @@ def start_automation():
 @login_required
 def automation_status():
     """Get current automation status"""
-    return jsonify(get_automation_engine().get_status())
+    return jsonify(automation_engine.get_status())
 
 @app.route('/pause_automation', methods=['POST'])
 @login_required
 def pause_automation():
     """Pause automation"""
-    get_automation_engine().pause()
+    automation_engine.pause()
     return jsonify({'success': True, 'message': 'Automation paused'})
 
 @app.route('/resume_automation', methods=['POST'])
 @login_required
 def resume_automation():
     """Resume automation"""
-    get_automation_engine().resume()
+    automation_engine.resume()
     return jsonify({'success': True, 'message': 'Automation resumed'})
 
 @app.route('/download_results')
 @login_required
 def download_results():
     """Download processing results"""
-    results_file = get_automation_engine().get_results_file()
+    results_file = automation_engine.get_results_file()
     if results_file and os.path.exists(results_file):
         return redirect(f'/static/{results_file}')
     else:
@@ -856,6 +855,23 @@ def mark_as_read(account_id, message_id):
         return redirect(url_for('view_email', account_id=account_id, message_id=message_id))
 
 # ==================== NEW TELEGRAM SETTINGS ROUTE ====================
+
+@app.route('/telegram_settings', methods=['GET', 'POST'])
+@login_required
+def telegram_settings():
+    """Configure Telegram notifications"""
+    if request.method == 'POST':
+        bot_token = request.form.get('bot_token')
+        chat_id = request.form.get('chat_id')
+        
+        try:
+            telegram_notifier.setup(bot_token, chat_id)
+            flash('Telegram settings saved successfully!', 'success')
+        except Exception as e:
+            flash(f'Error saving Telegram settings: {str(e)}', 'error')
+    
+    return render_template('telegram_settings.html')
+
 @app.route('/debug-automation')
 @login_required
 def debug_automation():
@@ -874,24 +890,6 @@ def debug_automation():
     result['has_process_accounts_batch'] = 'process_accounts_batch' in methods
     
     return jsonify(result)
-
-
-
-@app.route('/telegram_settings', methods=['GET', 'POST'])
-@login_required
-def telegram_settings():
-    """Configure Telegram notifications"""
-    if request.method == 'POST':
-        bot_token = request.form.get('bot_token')
-        chat_id = request.form.get('chat_id')
-        
-        try:
-            get_telegram_notifier().setup(bot_token, chat_id)
-            flash('Telegram settings saved successfully!', 'success')
-        except Exception as e:
-            flash(f'Error saving Telegram settings: {str(e)}', 'error')
-    
-    return render_template('telegram_settings.html')
 
 if __name__ == '__main__':
     # Create necessary directories
