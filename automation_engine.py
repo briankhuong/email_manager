@@ -87,7 +87,11 @@ class AutomationEngine:
                 'failed_logins': 0,
                 'captcha_count': 0,
                 'current_worker': 'Initializing hybrid automation',
-                'start_time': datetime.now().isoformat()
+                'start_time': datetime.now().isoformat(),
+                # Add progress metrics
+                'overall_progress_percent': 0,
+                'success_rate_percent': 0,
+                'completion_status': 'running'
             }
             
             # Get proxies
@@ -110,6 +114,14 @@ class AutomationEngine:
                 # Update status
                 self.status['processed_accounts'] = i + 1
                 self.status['current_worker'] = f'Processing: {email}'
+
+                # Calculate progress metrics
+                total = self.status['total_accounts']
+                processed = self.status['processed_accounts']
+                successful = self.status['successful_logins']
+
+                self.status['overall_progress_percent'] = int((processed / total) * 100) if total > 0 else 0
+                self.status['success_rate_percent'] = int((successful / processed) * 100) if processed > 0 else 0
                 
                 # Try login with hybrid approach
                 success = self.login_to_hotmail(email, password, proxy)
@@ -120,6 +132,10 @@ class AutomationEngine:
                 else:
                     self.status['failed_logins'] += 1
                     print(f"❌ Login failed: {email}")
+                
+                # Update success rate after login attempt
+                successful = self.status['successful_logins']
+                self.status['success_rate_percent'] = int((successful / processed) * 100) if processed > 0 else 0
                 
                 # 3-minute delay between accounts
                 if i < len(accounts) - 1:  # Don't delay after last account
@@ -140,6 +156,12 @@ class AutomationEngine:
             if hasattr(self, 'status'):
                 self.status['current_worker'] = 'Completed'
                 self.status['processed_accounts'] = self.status.get('total_accounts', 0)
+                self.status['overall_progress_percent'] = 100
+                self.status['completion_status'] = 'completed'
+                # Final success rate calculation
+                total = self.status['total_accounts']
+                successful = self.status['successful_logins']
+                self.status['success_rate_percent'] = int((successful / total) * 100) if total > 0 else 0
             print("🔄 Automation engine reset - ready for next run")
 
     def login_to_hotmail(self, email, password, proxy):
@@ -198,6 +220,7 @@ class AutomationEngine:
             # Ensure completion state is clear
             if self.status.get('current_worker') != 'Completed':
                 self.status['current_worker'] = 'Completed'
+                self.status['completion_status'] = 'completed'
         
         if not hasattr(self, 'status'):
             return {
@@ -207,7 +230,10 @@ class AutomationEngine:
                 'failed_logins': 0,
                 'captcha_count': 0,
                 'current_worker': 'Not running',
-                'start_time': None
+                'start_time': None,
+                'overall_progress_percent': 0,
+                'success_rate_percent': 0,
+                'completion_status': 'not_started'
             }
         return self.status
 
