@@ -90,7 +90,8 @@ class AutomationEngine:
                 'start_time': datetime.now().isoformat(),
                 'overall_progress_percent': 0,
                 'success_rate_percent': 0,
-                'completion_status': 'running'
+                'completion_status': 'running',
+                'is_running': True
             }
             
             # Get proxies
@@ -165,6 +166,9 @@ class AutomationEngine:
         finally:
             self.is_running = False
             self.is_paused = False
+            # Ensure final status reflects completion
+            if hasattr(self, 'status'):
+                self.status['is_running'] = False
             print("🔄 Automation engine reset - ready for next run")
 
     def login_to_hotmail(self, email, password, proxy):
@@ -172,15 +176,20 @@ class AutomationEngine:
         print(f"🔧 Attempting login for: {email}")
         print(f"🔧 Using proxy: {proxy[:50]}..." if proxy else "⚠️ No proxy provided")
         
+        # Simulate login process (for now - will replace with real API later)
         time.sleep(5)
         success = random.random() < 0.7
         
         if success:
             print(f"✅ Login successful: {email}")
+            
+            # ACTUALLY ADD TO DATABASE (REAL IMPLEMENTATION)
             try:
+                # Simulate getting access tokens (will replace with real API)
                 access_token = f"simulated_token_{uuid.uuid4().hex[:16]}"
                 refresh_token = f"simulated_refresh_{uuid.uuid4().hex[:16]}"
                 
+                # Add account to database
                 success = self.add_account_to_database(email, access_token, refresh_token)
                 if success:
                     print(f"📊 Successfully added {email} to database")
@@ -195,6 +204,7 @@ class AutomationEngine:
             return True
             
         else:
+            # Simulate failure
             failure_types = [
                 "Invalid credentials",
                 "Captcha required", 
@@ -212,13 +222,15 @@ class AutomationEngine:
 
     def get_status(self):
         """Get current automation status - REQUIRED BY WEB INTERFACE"""
+        # If automation completed, ensure status reflects completion
         if not self.is_running and hasattr(self, 'status'):
+            # Ensure completion state is clear
             if self.status.get('current_worker') != 'Completed':
                 self.status['current_worker'] = 'Completed'
                 self.status['completion_status'] = 'completed'
-                self.status['last_updated'] = datetime.now().isoformat()
         
-        status = {
+        # Default status structure
+        default_status = {
             'total_accounts': 0,
             'processed_accounts': 0,
             'successful_logins': 0,
@@ -229,14 +241,17 @@ class AutomationEngine:
             'overall_progress_percent': 0,
             'success_rate_percent': 0,
             'completion_status': 'not_started',
-            'timestamp': datetime.now().isoformat()
+            'is_running': self.is_running  # Add this for frontend compatibility
         }
         
         if hasattr(self, 'status'):
-            status.update(self.status)
-            status['timestamp'] = datetime.now().isoformat()
+            # Merge current status with defaults
+            merged_status = default_status.copy()
+            merged_status.update(self.status)
+            merged_status['is_running'] = self.is_running  # Ensure this is always current
+            return merged_status
         
-        return status
+        return default_status
 
     def pause(self):
         self.is_paused = True

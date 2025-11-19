@@ -12,6 +12,7 @@ from functools import wraps
 import uuid
 import csv
 from io import StringIO
+import glob
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -484,7 +485,16 @@ def start_automation():
 @login_required
 def automation_status():
     """Get current automation status"""
-    return jsonify(automation_engine.get_status())
+    status = automation_engine.get_status()
+    
+    # Ensure status includes is_running for frontend compatibility
+    if 'is_running' not in status:
+        status['is_running'] = automation_engine.is_running
+    
+    # Add timestamp to prevent caching
+    status['timestamp'] = datetime.now().isoformat()
+    
+    return jsonify(status)
 
 @app.route('/pause_automation', methods=['POST'])
 @login_required
@@ -866,6 +876,74 @@ def debug_automation():
         result['error'] = str(e)
     
     return jsonify(result)
+
+@app.route('/debug-cache')
+@login_required
+def debug_cache():
+    """Debug cache status"""
+    return jsonify({
+        'automation_engine_status': automation_engine.get_status(),
+        'is_running': automation_engine.is_running,
+        'is_paused': automation_engine.is_paused,
+        'current_job_id': automation_engine.current_job_id,
+        'session_data': {
+            'current_upload': session.get('current_upload'),
+            'upload_count': session.get('upload_count')
+        }
+    })
+
+@app.route('/debug-status')
+@login_required
+def debug_status():
+    """Debug automation status in detail"""
+    status = automation_engine.get_status()
+    return jsonify({
+        'automation_status': status,
+        'engine_state': {
+            'is_running': automation_engine.is_running,
+            'is_paused': automation_engine.is_paused,
+            'current_job_id': automation_engine.current_job_id
+        },
+        'session_state': {
+            'current_upload': session.get('current_upload'),
+            'upload_count': session.get('upload_count')
+        },
+        'timestamp': datetime.now().isoformat()
+    })
+
+@app.route('/reset-automation')
+@login_required
+def reset_automation():
+    """Reset automation engine status"""
+    automation_engine.is_running = False
+    automation_engine.is_paused = False
+    automation_engine.status = {}
+    session.pop('current_upload', None)
+    session.pop('upload_count', None)
+    flash('Automation status reset successfully!', 'success')
+    return redirect(url_for('batch_upload'))
+
+@app.route('/nuclear-reset')
+@login_required
+def nuclear_reset():
+    """COMPLETE reset of automation state"""
+    automation_engine.is_running = False
+    automation_engine.is_paused = False
+    automation_engine.current_job_id = None
+    automation_engine.status = {}
+    
+    session.pop('current_upload', None)
+    session.pop('upload_count', None)
+    
+    # Clear any file locks
+    for file in glob.glob('uploads/accounts_*.csv'):
+        try:
+            os.remove(file)
+        except:
+            pass
+    
+    flash('🚀 COMPLETE SYSTEM RESET - Cache cleared!', 'success')
+    return redirect(url_for('batch_upload'))
 
 if __name__ == '__main__':
     os.makedirs('uploads', exist_ok=True)
