@@ -136,7 +136,10 @@ class AutomationEngine:
         finally:
             self.is_running = False
             self.is_paused = False
-            self.status['current_worker'] = 'Completed'
+            # Force status update for frontend
+            if hasattr(self, 'status'):
+                self.status['current_worker'] = 'Completed'
+                self.status['processed_accounts'] = self.status.get('total_accounts', 0)
             print("🔄 Automation engine reset - ready for next run")
 
     def login_to_hotmail(self, email, password, proxy):
@@ -190,6 +193,12 @@ class AutomationEngine:
 
     def get_status(self):
         """Get current automation status - REQUIRED BY WEB INTERFACE"""
+        # If automation completed, ensure status reflects completion
+        if not self.is_running and hasattr(self, 'status'):
+            # Ensure completion state is clear
+            if self.status.get('current_worker') != 'Completed':
+                self.status['current_worker'] = 'Completed'
+        
         if not hasattr(self, 'status'):
             return {
                 'total_accounts': 0,
