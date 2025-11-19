@@ -192,7 +192,7 @@ class AutomationEngine:
             print("🔄 Automation engine reset - ready for next run")
 
     def login_to_hotmail(self, email, password, proxy):
-        """Real Microsoft Graph API authentication"""
+        """Real Microsoft Graph API authentication - FIXED VERSION"""
         print(f"🔧 Attempting REAL login for: {email}")
         print(f"🔧 Using proxy: {proxy[:50]}..." if proxy else "⚠️ No proxy provided")
         
@@ -200,13 +200,21 @@ class AutomationEngine:
             import requests
             import json
             
-            # Microsoft OAuth 2.0 Password Grant Flow
-            token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+            # FIXED: Use correct endpoints for consumer accounts
+            # For Outlook/Hotmail consumer accounts, we need to use specific endpoints
+            if 'outlook.com' in email or 'hotmail.com' in email or 'live.com' in email:
+                # Consumer account endpoint
+                token_url = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
+                client_id = "1fec8e78-bce4-4aaf-ab1b-5451cc387264"  # Microsoft's consumer client ID
+            else:
+                # Organizational account endpoint  
+                token_url = "https://login.microsoftonline.com/organizations/oauth2/v2.0/token"
+                client_id = "1fec8e78-bce4-4aaf-ab1b-5451cc387264"
             
             # Prepare request data
             data = {
-                'client_id': '1fec8e78-bce4-4aaf-ab1b-5451cc387264',  # Microsoft's default client ID for Outlook
-                'scope': 'https://graph.microsoft.com/.default',
+                'client_id': client_id,
+                'scope': 'https://graph.microsoft.com/.default offline_access',
                 'username': email,
                 'password': password,
                 'grant_type': 'password'
@@ -222,12 +230,22 @@ class AutomationEngine:
             
             # Make authentication request
             print(f"🌐 Authenticating {email} via Microsoft Graph API...")
+            print(f"🔧 Using endpoint: {token_url}")
+            
+            headers = {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
             response = requests.post(
                 token_url,
                 data=data,
                 proxies=proxies,
+                headers=headers,
                 timeout=30
             )
+            
+            print(f"🔧 Response status: {response.status_code}")
             
             if response.status_code == 200:
                 # Successful authentication
@@ -237,6 +255,8 @@ class AutomationEngine:
                 
                 if access_token:
                     print(f"✅ REAL Login successful: {email}")
+                    print(f"🔧 Token type: {token_data.get('token_type')}")
+                    print(f"🔧 Expires in: {token_data.get('expires_in')} seconds")
                     
                     # Add account to database with REAL tokens
                     success = self.add_account_to_database(email, access_token, refresh_token)
@@ -245,7 +265,10 @@ class AutomationEngine:
                         
                         # Verify the token works by getting user info
                         try:
-                            headers = {'Authorization': f'Bearer {access_token}'}
+                            headers = {
+                                'Authorization': f'Bearer {access_token}',
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                            }
                             user_response = requests.get(
                                 'https://graph.microsoft.com/v1.0/me',
                                 headers=headers,
@@ -256,8 +279,10 @@ class AutomationEngine:
                                 user_info = user_response.json()
                                 user_email = user_info.get('mail') or user_info.get('userPrincipalName')
                                 print(f"🔍 Token verified: {user_email}")
+                                print(f"🔍 User display name: {user_info.get('displayName', 'N/A')}")
                             else:
                                 print(f"⚠️ Token verification failed: {user_response.status_code}")
+                                print(f"⚠️ Verification response: {user_response.text[:200]}")
                                 
                         except Exception as verify_error:
                             print(f"⚠️ Token verification error: {verify_error}")
@@ -268,31 +293,49 @@ class AutomationEngine:
                         return False
                 else:
                     print(f"❌ No access token in response for {email}")
+                    print(f"❌ Response: {token_data}")
                     return False
                     
             else:
                 # Authentication failed
-                error_data = response.json()
-                error_description = error_data.get('error_description', 'Unknown error')
+                error_text = response.text
+                print(f"❌ REAL Login failed: {email} - Status: {response.status_code}")
+                print(f"❌ Error response: {error_text[:500]}")
                 
-                print(f"❌ REAL Login failed: {email} - {error_description}")
-                
-                # Categorize the error
-                if 'AADSTS50126' in error_description or 'invalid username or password' in error_description.lower():
-                    print("🔐 Error: Invalid credentials")
-                elif 'AADSTS50053' in error_description or 'account is locked' in error_description.lower():
-                    print("🚫 Error: Account locked")
-                elif 'AADSTS50076' in error_description or 'due to a configuration change' in error_description.lower():
-                    print("🔄 Error: Microsoft MFA required")
-                elif 'AADSTS50158' in error_description or 'external security challenge' in error_description.lower():
-                    print("🛡️ Error: External security challenge")
-                elif 'AADSTS65001' in error_description:
-                    print("📋 Error: Consent required")
-                else:
-                    print(f"🔧 Error type: {error_data.get('error', 'Unknown')}")
-                
-                return False
-                
+                try:
+                    error_data = response.json()
+                    error_description = error_data.get('error_description', 'Unknown error')
+                    error_code = error_data.get('error', 'unknown_error')
+                    
+                    print(f"❌ Error: {error_code} - {error_description}")
+                    
+                    # Categorize the error
+                    if 'AADSTS50126' in error_description or 'invalid username or password' in error_description.lower():
+                        print("🔐 Error: Invalid credentials")
+                        return False
+                    elif 'AADSTS50053' in error_description or 'account is locked' in error_description.lower():
+                        print("🚫 Error: Account locked")
+                        return False
+                    elif 'AADSTS50076' in error_description or 'due to a configuration change' in error_description.lower():
+                        print("🔄 Error: Microsoft MFA required")
+                        return False
+                    elif 'AADSTS50158' in error_description or 'external security challenge' in error_description.lower():
+                        print("🛡️ Error: External security challenge")
+                        return False
+                    elif 'AADSTS65001' in error_description:
+                        print("📋 Error: Consent required")
+                        return False
+                    elif 'unsupported_grant_type' in error_code:
+                        print("🛠️ Error: Grant type not supported - endpoint issue")
+                        return False
+                    else:
+                        print(f"🔧 Unknown error type: {error_code}")
+                        return False
+                        
+                except Exception as parse_error:
+                    print(f"❌ Could not parse error response: {parse_error}")
+                    return False
+                    
         except requests.exceptions.Timeout:
             print(f"❌ Login timeout for {email}")
             return False
