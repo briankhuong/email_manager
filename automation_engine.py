@@ -4,7 +4,9 @@ import csv
 import uuid
 import os
 import random
+import sqlite3
 from datetime import datetime
+from config import Config
 
 class AutomationEngine:
     def __init__(self, proxy_manager, telegram_notifier):
@@ -19,10 +21,8 @@ class AutomationEngine:
     def add_account_to_database(self, email, access_token, refresh_token):
         """Actually add account to the database"""
         try:
-            import sqlite3
-            from datetime import datetime
-            
-            conn = sqlite3.connect('email_manager.db')  # Your database file
+            # Use the same database file as your app
+            conn = sqlite3.connect(Config.DATABASE_FILE)
             c = conn.cursor()
             
             # Check if account already exists
@@ -135,6 +135,9 @@ class AutomationEngine:
             print(f"❌ AUTOMATION ERROR: {e}")
         finally:
             self.is_running = False
+            self.is_paused = False
+            self.status['current_worker'] = 'Completed'
+            print("🔄 Automation engine reset - ready for next run")
 
     def login_to_hotmail(self, email, password, proxy):
         """Real login approach - actually adds accounts to database"""
@@ -155,8 +158,12 @@ class AutomationEngine:
                 refresh_token = f"simulated_refresh_{uuid.uuid4().hex[:16]}"
                 
                 # Add account to database
-                self.add_account_to_database(email, access_token, refresh_token)
-                print(f"📊 Successfully added {email} to database")
+                success = self.add_account_to_database(email, access_token, refresh_token)
+                if success:
+                    print(f"📊 Successfully added {email} to database")
+                else:
+                    print(f"❌ Failed to add {email} to database")
+                    return False
                 
             except Exception as e:
                 print(f"❌ Database error for {email}: {e}")
