@@ -59,22 +59,22 @@ class AutomationEngine:
             return False    
 
     def _prepare_proxy(self, proxy):
-    """Prepare proxy configuration for requests"""
-    if not proxy:
-        return {}
-    
-    # Handle different proxy formats
-    if proxy.startswith('http://') or proxy.startswith('https://'):
-        return {
-            'http': proxy,
-            'https': proxy
-        }
-    else:
-        # Assume HTTP proxy and add protocol
-        return {
-            'http': f"http://{proxy}",
-            'https': f"http://{proxy}"
-        }
+        """Prepare proxy configuration for requests"""
+        if not proxy:
+            return {}
+        
+        # Handle different proxy formats
+        if proxy.startswith('http://') or proxy.startswith('https://'):
+            return {
+                'http': proxy,
+                'https': proxy
+            }
+        else:
+            # Assume HTTP proxy and add protocol
+            return {
+                'http': f"http://{proxy}",
+                'https': f"http://{proxy}"
+            }
 
     def process_accounts_batch(self, accounts_file):
         """Process accounts in batch with hybrid automation"""
