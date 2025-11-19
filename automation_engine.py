@@ -154,13 +154,14 @@ class AutomationEngine:
             self.is_paused = False
             # Force status update for frontend
             if hasattr(self, 'status'):
+                # Ensure all accounts are marked as processed
+                total = self.status.get('total_accounts', 0)
+                self.status['processed_accounts'] = total
                 self.status['current_worker'] = 'Completed'
-                self.status['processed_accounts'] = self.status.get('total_accounts', 0)
                 self.status['overall_progress_percent'] = 100
                 self.status['completion_status'] = 'completed'
                 # Final success rate calculation
-                total = self.status['total_accounts']
-                successful = self.status['successful_logins']
+                successful = self.status.get('successful_logins', 0)
                 self.status['success_rate_percent'] = int((successful / total) * 100) if total > 0 else 0
             print("🔄 Automation engine reset - ready for next run")
 
