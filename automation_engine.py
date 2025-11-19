@@ -58,6 +58,24 @@ class AutomationEngine:
             print(f"❌ Database error adding {email}: {e}")
             return False    
 
+    def _prepare_proxy(self, proxy):
+    """Prepare proxy configuration for requests"""
+    if not proxy:
+        return {}
+    
+    # Handle different proxy formats
+    if proxy.startswith('http://') or proxy.startswith('https://'):
+        return {
+            'http': proxy,
+            'https': proxy
+        }
+    else:
+        # Assume HTTP proxy and add protocol
+        return {
+            'http': f"http://{proxy}",
+            'https': f"http://{proxy}"
+        }
+
     def process_accounts_batch(self, accounts_file):
         """Process accounts in batch with hybrid automation"""
         print(f"🚀 AUTOMATION STARTED with file: {accounts_file}")
@@ -394,39 +412,61 @@ class AutomationEngine:
             return False
 
     def _try_imap_auth(self, email, password, proxy):
-        """Try IMAP authentication for Outlook/Hotmail"""
+        """Enhanced IMAP authentication with multiple server attempts"""
         try:
             import imaplib
             import ssl
             
             print(f"🔧 Testing IMAP authentication for: {email}")
             
-            # Outlook IMAP settings
-            imap_server = 'outlook.office365.com'
-            imap_port = 993
+            # Try multiple IMAP servers
+            imap_servers = [
+                {'server': 'outlook.office365.com', 'port': 993},
+                {'server': 'imap-mail.outlook.com', 'port': 993},
+                {'server': 'imap.outlook.com', 'port': 993},
+            ]
             
-            try:
-                # Create SSL context
-                context = ssl.create_default_context()
+            for server_config in imap_servers:
+                server = server_config['server']
+                port = server_config['port']
                 
-                # Connect to IMAP server
-                mail = imaplib.IMAP4_SSL(imap_server, imap_port, ssl_context=context)
+                print(f"🔧 Trying IMAP server: {server}:{port}")
                 
-                # Try to login
-                mail.login(email, password)
-                
-                # If successful, logout and return success
-                mail.logout()
-                print(f"✅ IMAP authentication successful for: {email}")
-                return True
-                
-            except imaplib.IMAP4.error as e:
-                print(f"❌ IMAP authentication failed: {e}")
-                return False
-            except Exception as e:
-                print(f"❌ IMAP connection error: {e}")
-                return False
-                
+                try:
+                    # Create SSL context
+                    context = ssl.create_default_context()
+                    
+                    # Connect to IMAP server
+                    mail = imaplib.IMAP4_SSL(server, port, ssl_context=context)
+                    
+                    # Try to login with timeout
+                    mail.login(email, password)
+                    
+                    # Check if we can list folders (verify actual access)
+                    mail.select('inbox')
+                    
+                    # If successful, logout and return success
+                    mail.logout()
+                    print(f"✅ IMAP authentication successful on {server}")
+                    return True
+                    
+                except imaplib.IMAP4.error as e:
+                    error_msg = str(e)
+                    print(f"❌ IMAP auth failed on {server}: {error_msg}")
+                    
+                    if 'Invalid credentials' in error_msg or 'LOGIN failed' in error_msg:
+                        print("🔐 Invalid credentials - stopping IMAP attempts")
+                        return False
+                    # Continue to next server
+                    continue
+                    
+                except Exception as e:
+                    print(f"❌ IMAP connection error on {server}: {e}")
+                    continue
+                    
+            print("❌ All IMAP servers failed")
+            return False
+            
         except ImportError:
             print("⚠️ IMAP library not available - skipping IMAP test")
             return False

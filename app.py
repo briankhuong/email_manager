@@ -151,7 +151,7 @@ def get_token_from_code(code):
     return result
 
 def refresh_token(account_id):
-    """Refresh access token using refresh token - ENHANCED VERSION"""
+    """Refresh access token - SKIPS LEGACY ACCOUNTS"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
     c = conn.cursor()
     c.execute("SELECT email, access_token, refresh_token FROM accounts WHERE id = ?", (account_id,))
@@ -163,13 +163,16 @@ def refresh_token(account_id):
         
     email, access_token, refresh_token_value = row
     
-    # Check if this is a legacy auth account
-    if access_token and access_token.startswith('legacy_auth_'):
-        print(f"⚠️ Legacy auth account {email} - cannot refresh token")
+    # Skip legacy/auth accounts that can't use Graph API
+    if (access_token and 
+        (access_token.startswith('legacy_auth_') or 
+         access_token.startswith('imap_auth_') or
+         access_token.startswith('hotmail_app_password_'))):
+        print(f"⚠️ Skipping token refresh for legacy account: {email}")
         conn.close()
         return None
     
-    if not refresh_token_value:
+    if not refresh_token_value or refresh_token_value.startswith('legacy_'):
         conn.close()
         return None
     
@@ -321,8 +324,12 @@ def callback():
     
     return dashboard()
 
-def get_status_badge(unread_count, last_error, is_signed_in):
-    """Get status badge for account"""
+# In your dashboard function, modify the account status badge:
+def get_status_badge(unread_count, last_error, is_signed_in, access_token):
+    """Get status badge for account - INCLUDES LEGACY INDICATOR"""
+    if access_token and (access_token.startswith('legacy_auth_') or access_token.startswith('imap_auth_')):
+        return '🟡'  # Yellow for legacy accounts
+    
     if last_error:
         return '🔴'
     elif not is_signed_in:
@@ -790,13 +797,13 @@ def view_email(account_id, message_id):
         flash(f'Error: {str(e)}', 'error')
         return redirect(url_for('view_emails', account_id=account_id))
 
-@app.route('/mark_as_read/<int:account_id>/<message_id>')
+@app.route('/view_emails/<int:account_id>')
 @login_required
-def mark_as_read(account_id, message_id):
-    """Mark a specific email as read and redirect to view it"""
+def view_emails(account_id):
+    """View emails - HANDLES LEGACY ACCOUNTS PROPERLY"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
     c = conn.cursor()
-    c.execute("SELECT email, access_token FROM accounts WHERE id = ?", (account_id,))
+    c.execute("SELECT email, access_token, refresh_token FROM accounts WHERE id = ?", (account_id,))
     row = c.fetchone()
     conn.close()
     
@@ -804,40 +811,69 @@ def mark_as_read(account_id, message_id):
         flash('Account not found', 'error')
         return redirect(url_for('dashboard'))
     
-    email, access_token = row
+    email, access_token, refresh_token = row
+    
+    # Check if it's a legacy auth account
+    if access_token and (access_token.startswith('legacy_auth_') or access_token.startswith('imap_auth_')):
+        flash(f'This account uses legacy authentication. Use an email client to access emails for {email}.', 'info')
+        return redirect(url_for('dashboard'))
     
     if not access_token:
         flash('Not signed in or token expired', 'error')
         return redirect(url_for('dashboard'))
     
+    # Rest of your existing Graph API code for non-legacy accounts...
     headers = {
         'Authorization': f'Bearer {access_token}',
         'Content-Type': 'application/json'
     }
     
     try:
-        url = f'https://graph.microsoft.com/v1.0/me/messages/{message_id}'
-        data = {
-            'isRead': True
+        url = 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages'
+        params = {
+            '$filter': 'isRead eq false',
+            '$select': 'id,subject,from,receivedDateTime,bodyPreview,hasAttachments',
+            '$orderby': 'receivedDateTime DESC',
+            '$top': 50
         }
         
-        response = requests.patch(url, headers=headers, json=data)
+        response = requests.get(url, headers=headers, params=params)
         
         if response.status_code == 401:
             new_access_token = refresh_token(account_id)
             if new_access_token:
                 headers['Authorization'] = f'Bearer {new_access_token}'
-                response = requests.patch(url, headers=headers, json=data)
+                response = requests.get(url, headers=headers, params=params)
         
-        if response.status_code in [200, 204]:
-            return redirect(url_for('view_email', account_id=account_id, message_id=message_id))
+        if response.status_code == 200:
+            emails_data = response.json()
+            emails = emails_data.get('value', [])
+            
+            formatted_emails = []
+            for email_msg in emails:
+                sender = email_msg.get('from', {}).get('emailAddress', {})
+                formatted_emails.append({
+                    'id': email_msg.get('id'),
+                    'subject': email_msg.get('subject', 'No Subject'),
+                    'from_name': sender.get('name', 'Unknown'),
+                    'from_email': sender.get('address', ''),
+                    'received': email_msg.get('receivedDateTime', ''),
+                    'preview': email_msg.get('bodyPreview', '')[:200] + '...' if email_msg.get('bodyPreview') else 'No preview',
+                    'has_attachments': email_msg.get('hasAttachments', False)
+                })
+            
+            return render_template('emails.html', 
+                                 account_email=email,
+                                 account_id=account_id,
+                                 emails=formatted_emails,
+                                 unread_count=len(emails))
         else:
-            flash(f'Error marking email as read: {response.status_code}', 'error')
-            return redirect(url_for('view_email', account_id=account_id, message_id=message_id))
+            flash(f'Error fetching emails: {response.status_code}', 'error')
+            return redirect(url_for('dashboard'))
             
     except Exception as e:
         flash(f'Error: {str(e)}', 'error')
-        return redirect(url_for('view_email', account_id=account_id, message_id=message_id))
+        return redirect(url_for('dashboard'))
 
 @app.route('/telegram_settings', methods=['GET', 'POST'])
 @login_required
