@@ -146,21 +146,25 @@ class AutomationEngine:
             
             print("✅ AUTOMATION COMPLETED SUCCESSFULLY")
             
+            # FORCE COMPLETION STATUS UPDATE - MOVE INSIDE TRY BLOCK
+            total = self.status['total_accounts']
+            self.status['processed_accounts'] = total
+            self.status['current_worker'] = '✅ Automation Completed'
+            self.status['overall_progress_percent'] = 100
+            self.status['completion_status'] = 'completed'
+            successful = self.status['successful_logins']
+            self.status['success_rate_percent'] = int((successful / total) * 100) if total > 0 else 0
+            print("🔄 Status updated to completed")
+            
         except Exception as e:
             print(f"❌ AUTOMATION ERROR: {e}")
+            # Update status even on error
+            if hasattr(self, 'status'):
+                self.status['current_worker'] = f'❌ Error: {str(e)}'
+                self.status['completion_status'] = 'error'
         finally:
             self.is_running = False
             self.is_paused = False
-            if hasattr(self, 'status'):
-                total = self.status.get('total_accounts', 0)
-                self.status['processed_accounts'] = total
-                self.status['current_worker'] = '✅ Automation Completed'
-                self.status['overall_progress_percent'] = 100
-                self.status['completion_status'] = 'completed'
-                successful = self.status.get('successful_logins', 0)
-                failed = self.status.get('failed_logins', 0)
-                self.status['success_rate_percent'] = int((successful / total) * 100) if total > 0 else 0
-                self.status['last_updated'] = datetime.now().isoformat()
             print("🔄 Automation engine reset - ready for next run")
 
     def login_to_hotmail(self, email, password, proxy):
