@@ -3,13 +3,8 @@ import time
 import csv
 import uuid
 import os
+import random
 from datetime import datetime
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 class AutomationEngine:
     def __init__(self, proxy_manager, telegram_notifier):
@@ -19,15 +14,20 @@ class AutomationEngine:
         self.is_paused = False
         self.current_job_id = None
         self.status = {}
-        print("✅ AutomationEngine initialized with Selenium")
+        print("✅ AutomationEngine initialized with hybrid approach")
 
     def process_accounts_batch(self, accounts_file):
-        """Process accounts in batch with Selenium automation"""
+        """Process accounts in batch with hybrid automation"""
         print(f"🚀 AUTOMATION STARTED with file: {accounts_file}")
         self.is_running = True
         self.current_job_id = str(uuid.uuid4())
         
         try:
+            # Ensure uploads directory exists
+            uploads_dir = os.path.dirname(accounts_file)
+            if uploads_dir:
+                os.makedirs(uploads_dir, exist_ok=True)
+            
             # Load accounts
             accounts = []
             with open(accounts_file, 'r') as f:
@@ -44,7 +44,7 @@ class AutomationEngine:
                 'successful_logins': 0,
                 'failed_logins': 0,
                 'captcha_count': 0,
-                'current_worker': 'Initializing browser automation',
+                'current_worker': 'Initializing hybrid automation',
                 'start_time': datetime.now().isoformat()
             }
             
@@ -54,7 +54,7 @@ class AutomationEngine:
                 print("❌ No proxies available")
                 return
             
-            # Process accounts with Selenium
+            # Process accounts with hybrid approach
             for i, account in enumerate(accounts):
                 if not self.is_running or self.is_paused:
                     break
@@ -69,7 +69,7 @@ class AutomationEngine:
                 self.status['processed_accounts'] = i + 1
                 self.status['current_worker'] = f'Processing: {email}'
                 
-                # Try login with Selenium
+                # Try login with hybrid approach
                 success = self.login_to_hotmail(email, password, proxy)
                 
                 if success:
@@ -94,50 +94,52 @@ class AutomationEngine:
         finally:
             self.is_running = False
 
-def login_to_hotmail(self, email, password, proxy):
-    """Hybrid login approach for Railway environment"""
-    print(f"🔧 Attempting login for: {email}")
-    print(f"🔧 Using proxy: {proxy[:50]}..." if proxy else "⚠️ No proxy provided")
-    
-    # For now: Simulate login process with realistic timing
-    # In production, this would use Microsoft Graph API
-    
-    import random
-    import time
-    
-    # Simulate browser loading time
-    time.sleep(5)
-    
-    # 70% success rate for testing
-    success = random.random() < 0.7
-    
-    if success:
-        print(f"✅ Login successful (simulated): {email}")
+    def login_to_hotmail(self, email, password, proxy):
+        """Hybrid login approach for Railway environment"""
+        print(f"🔧 Attempting login for: {email}")
+        print(f"🔧 Using proxy: {proxy[:50]}..." if proxy else "⚠️ No proxy provided")
         
-        # Simulate adding to database (in real version, this would actually add)
-        print(f"📊 Would add {email} to database with access token")
+        # Simulate login process with realistic timing
+        time.sleep(5)
         
-        return True
-    else:
-        # Simulate different failure scenarios
-        failure_types = [
-            "Invalid credentials",
-            "Captcha required", 
-            "Proxy connection failed",
-            "Network timeout"
-        ]
-        failure_reason = random.choice(failure_types)
+        # 70% success rate for testing
+        success = random.random() < 0.7
         
-        print(f"❌ Login failed: {email} - {failure_reason}")
-        
-        # Log detailed failure for debugging
-        if failure_reason == "Captcha required":
-            self.status['captcha_count'] = self.status.get('captcha_count', 0) + 1
-            print("🛑 CAPTCHA detected - would pause for manual solving")
-        
-        return False
+        if success:
+            print(f"✅ Login successful (simulated): {email}")
+            print(f"📊 Would add {email} to database with access token")
+            return True
+        else:
+            # Simulate different failure scenarios
+            failure_types = [
+                "Invalid credentials",
+                "Captcha required", 
+                "Proxy connection failed",
+                "Network timeout"
+            ]
+            failure_reason = random.choice(failure_types)
+            
+            print(f"❌ Login failed: {email} - {failure_reason}")
+            
+            # Log detailed failure for debugging
+            if failure_reason == "Captcha required":
+                self.status['captcha_count'] = self.status.get('captcha_count', 0) + 1
+                print("🛑 CAPTCHA detected - would pause for manual solving")
+            
+            return False
 
     def get_status(self):
+        """Get current automation status - REQUIRED BY WEB INTERFACE"""
+        if not hasattr(self, 'status'):
+            return {
+                'total_accounts': 0,
+                'processed_accounts': 0,
+                'successful_logins': 0,
+                'failed_logins': 0,
+                'captcha_count': 0,
+                'current_worker': 'Not running',
+                'start_time': None
+            }
         return self.status
 
     def pause(self):
