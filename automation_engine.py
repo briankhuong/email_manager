@@ -152,17 +152,20 @@ class AutomationEngine:
         finally:
             self.is_running = False
             self.is_paused = False
-            # Force status update for frontend
+            # Force status update for frontend - be more aggressive
             if hasattr(self, 'status'):
-                # Ensure all accounts are marked as processed
                 total = self.status.get('total_accounts', 0)
+                # Ensure ALL accounts are marked as processed
                 self.status['processed_accounts'] = total
-                self.status['current_worker'] = 'Completed'
+                self.status['current_worker'] = '✅ Automation Completed'
                 self.status['overall_progress_percent'] = 100
                 self.status['completion_status'] = 'completed'
-                # Final success rate calculation
+                # Final calculations
                 successful = self.status.get('successful_logins', 0)
+                failed = self.status.get('failed_logins', 0)
                 self.status['success_rate_percent'] = int((successful / total) * 100) if total > 0 else 0
+                # Force frontend update
+                self.status['last_updated'] = datetime.now().isoformat()
             print("🔄 Automation engine reset - ready for next run")
 
     def login_to_hotmail(self, email, password, proxy):
@@ -215,28 +218,36 @@ class AutomationEngine:
             return False
 
     def get_status(self):
-        """Get current automation status - REQUIRED BY WEB INTERFACE"""
-        # If automation completed, ensure status reflects completion
-        if not self.is_running and hasattr(self, 'status'):
-            # Ensure completion state is clear
-            if self.status.get('current_worker') != 'Completed':
-                self.status['current_worker'] = 'Completed'
-                self.status['completion_status'] = 'completed'
-        
-        if not hasattr(self, 'status'):
-            return {
-                'total_accounts': 0,
-                'processed_accounts': 0,
-                'successful_logins': 0,
-                'failed_logins': 0,
-                'captcha_count': 0,
-                'current_worker': 'Not running',
-                'start_time': None,
-                'overall_progress_percent': 0,
-                'success_rate_percent': 0,
-                'completion_status': 'not_started'
-            }
-        return self.status
+    """Get current automation status - REQUIRED BY WEB INTERFACE"""
+    # If automation completed, ensure status reflects completion
+    if not self.is_running and hasattr(self, 'status'):
+        # Ensure completion state is clear
+        if self.status.get('current_worker') != 'Completed':
+            self.status['current_worker'] = 'Completed'
+            self.status['completion_status'] = 'completed'
+            # Force frontend refresh with updated timestamp
+            self.status['last_updated'] = datetime.now().isoformat()
+    
+    # Add timestamp to prevent caching
+    status = {
+        'total_accounts': 0,
+        'processed_accounts': 0,
+        'successful_logins': 0,
+        'failed_logins': 0,
+        'captcha_count': 0,
+        'current_worker': 'Not running',
+        'start_time': None,
+        'overall_progress_percent': 0,
+        'success_rate_percent': 0,
+        'completion_status': 'not_started',
+        'timestamp': datetime.now().isoformat()  # Force frontend refresh
+    }
+    
+    if hasattr(self, 'status'):
+        status.update(self.status)
+        status['timestamp'] = datetime.now().isoformat()  # Always fresh timestamp
+    
+    return status
 
     def pause(self):
         self.is_paused = True
