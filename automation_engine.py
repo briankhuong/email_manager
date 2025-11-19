@@ -94,129 +94,129 @@ class AutomationEngine:
         finally:
             self.is_running = False
 
-   def login_to_hotmail(self, email, password, proxy):
-    """Login to Hotmail using Selenium with Railway-optimized setup"""
-    driver = None
-    try:
-        # Railway-optimized Chrome options
-        chrome_options = Options()
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--window-size=1920,1080')
-        chrome_options.add_argument('--disable-extensions')
-        chrome_options.add_argument('--disable-software-rasterizer')
-        chrome_options.add_argument('--remote-debugging-port=9222')
-        
-        # Add proxy if available and valid
-        if proxy and ('http' in proxy or 'socks' in proxy):
-            chrome_options.add_argument(f'--proxy-server={proxy}')
-            print(f"🔧 Using proxy: {proxy[:50]}...")
-        else:
-            print("⚠️ No valid proxy provided, using direct connection")
-        
-        # Initialize driver with error handling
+    def login_to_hotmail(self, email, password, proxy):
+        """Login to Hotmail using Selenium with Railway-optimized setup"""
+        driver = None
         try:
-            from selenium.webdriver.chrome.service import Service
-            from webdriver_manager.chrome import ChromeDriverManager
+            # Railway-optimized Chrome options
+            chrome_options = Options()
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--disable-gpu')
+            chrome_options.add_argument('--window-size=1920,1080')
+            chrome_options.add_argument('--disable-extensions')
+            chrome_options.add_argument('--disable-software-rasterizer')
+            chrome_options.add_argument('--remote-debugging-port=9222')
             
-            # Use webdriver-manager for automatic ChromeDriver management
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            
-        except Exception as e:
-            print(f"⚠️ ChromeDriver manager failed: {e}, trying direct...")
-            # Fallback to direct ChromeDriver
-            driver = webdriver.Chrome(options=chrome_options)
-        
-        driver.implicitly_wait(15)
-        
-        # Navigate to Hotmail login
-        print(f"🌐 Navigating to Hotmail login for {email}")
-        driver.get("https://outlook.live.com/owa/")
-        
-        # Wait for login page to load
-        wait = WebDriverWait(driver, 15)
-        
-        try:
-            # Enter email
-            email_field = wait.until(EC.element_to_be_clickable((By.NAME, "loginfmt")))
-            email_field.clear()
-            email_field.send_keys(email)
-            print("✅ Email entered")
-            
-            # Click next
-            next_button = driver.find_element(By.ID, "idSIButton9")
-            next_button.click()
-            print("✅ Next button clicked")
-            
-            # Wait for password field
-            time.sleep(5)
-            
-            # Check if we need to handle "Use another account"
-            try:
-                use_another_account = driver.find_elements(By.ID, "otherTileText")
-                if use_another_account:
-                    use_another_account[0].click()
-                    time.sleep(3)
-            except:
-                pass
-            
-            # Enter password
-            password_field = wait.until(EC.element_to_be_clickable((By.NAME, "passwd")))
-            password_field.clear()
-            password_field.send_keys(password)
-            print("✅ Password entered")
-            
-            # Click sign in
-            signin_button = driver.find_element(By.ID, "idSIButton9")
-            signin_button.click()
-            print("✅ Sign in button clicked")
-            
-            # Wait for login result with longer timeout
-            time.sleep(8)
-            
-            # Check if login was successful
-            current_url = driver.current_url
-            page_title = driver.title.lower()
-            page_source = driver.page_source.lower()
-            
-            success_indicators = [
-                "mail" in current_url,
-                "inbox" in current_url, 
-                "outlook" in page_title,
-                "inbox" in page_title,
-                "messages" in page_source
-            ]
-            
-            if any(success_indicators):
-                print(f"✅ Successfully logged in: {email}")
-                return True
+            # Add proxy if available and valid
+            if proxy and ('http' in proxy or 'socks' in proxy):
+                chrome_options.add_argument(f'--proxy-server={proxy}')
+                print(f"🔧 Using proxy: {proxy[:50]}...")
             else:
-                print(f"❌ Login failed - URL: {current_url}, Title: {page_title}")
-                # Save screenshot for debugging
+                print("⚠️ No valid proxy provided, using direct connection")
+            
+            # Initialize driver with error handling
+            try:
+                from selenium.webdriver.chrome.service import Service
+                from webdriver_manager.chrome import ChromeDriverManager
+                
+                # Use webdriver-manager for automatic ChromeDriver management
+                service = Service(ChromeDriverManager().install())
+                driver = webdriver.Chrome(service=service, options=chrome_options)
+                
+            except Exception as e:
+                print(f"⚠️ ChromeDriver manager failed: {e}, trying direct...")
+                # Fallback to direct ChromeDriver
+                driver = webdriver.Chrome(options=chrome_options)
+            
+            driver.implicitly_wait(15)
+            
+            # Navigate to Hotmail login
+            print(f"🌐 Navigating to Hotmail login for {email}")
+            driver.get("https://outlook.live.com/owa/")
+            
+            # Wait for login page to load
+            wait = WebDriverWait(driver, 15)
+            
+            try:
+                # Enter email
+                email_field = wait.until(EC.element_to_be_clickable((By.NAME, "loginfmt")))
+                email_field.clear()
+                email_field.send_keys(email)
+                print("✅ Email entered")
+                
+                # Click next
+                next_button = driver.find_element(By.ID, "idSIButton9")
+                next_button.click()
+                print("✅ Next button clicked")
+                
+                # Wait for password field
+                time.sleep(5)
+                
+                # Check if we need to handle "Use another account"
                 try:
-                    driver.save_screenshot(f"debug_{email.split('@')[0]}.png")
-                    print("📸 Screenshot saved for debugging")
+                    use_another_account = driver.find_elements(By.ID, "otherTileText")
+                    if use_another_account:
+                        use_another_account[0].click()
+                        time.sleep(3)
                 except:
                     pass
+                
+                # Enter password
+                password_field = wait.until(EC.element_to_be_clickable((By.NAME, "passwd")))
+                password_field.clear()
+                password_field.send_keys(password)
+                print("✅ Password entered")
+                
+                # Click sign in
+                signin_button = driver.find_element(By.ID, "idSIButton9")
+                signin_button.click()
+                print("✅ Sign in button clicked")
+                
+                # Wait for login result with longer timeout
+                time.sleep(8)
+                
+                # Check if login was successful
+                current_url = driver.current_url
+                page_title = driver.title.lower()
+                page_source = driver.page_source.lower()
+                
+                success_indicators = [
+                    "mail" in current_url,
+                    "inbox" in current_url, 
+                    "outlook" in page_title,
+                    "inbox" in page_title,
+                    "messages" in page_source
+                ]
+                
+                if any(success_indicators):
+                    print(f"✅ Successfully logged in: {email}")
+                    return True
+                else:
+                    print(f"❌ Login failed - URL: {current_url}, Title: {page_title}")
+                    # Save screenshot for debugging
+                    try:
+                        driver.save_screenshot(f"debug_{email.split('@')[0]}.png")
+                        print("📸 Screenshot saved for debugging")
+                    except:
+                        pass
+                    return False
+                    
+            except Exception as form_error:
+                print(f"❌ Form interaction error: {form_error}")
                 return False
                 
-        except Exception as form_error:
-            print(f"❌ Form interaction error: {form_error}")
+        except Exception as e:
+            print(f"❌ Selenium setup error for {email}: {e}")
             return False
-            
-    except Exception as e:
-        print(f"❌ Selenium setup error for {email}: {e}")
-        return False
-    finally:
-        if driver:
-            try:
-                driver.quit()
-                print("✅ Browser closed")
-            except:
-                pass
+        finally:
+            if driver:
+                try:
+                    driver.quit()
+                    print("✅ Browser closed")
+                except:
+                    pass
 
     def get_status(self):
         return self.status
