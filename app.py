@@ -930,6 +930,12 @@ def debug_status():
         'timestamp': datetime.now().isoformat()
     })
 
+@app.route('/api/automation/start', methods=['POST'])
+@login_required
+def api_start_automation():
+    """API endpoint for starting automation - ALIAS FOR /start_automation"""
+    return start_automation()
+
 @app.route('/reset-automation')
 @login_required
 def reset_automation():
