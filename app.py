@@ -324,7 +324,6 @@ def callback():
     
     return dashboard()
 
-# In your dashboard function, modify the account status badge:
 def get_status_badge(unread_count, last_error, is_signed_in, access_token):
     """Get status badge for account - INCLUDES LEGACY INDICATOR"""
     if access_token and (access_token.startswith('legacy_auth_') or access_token.startswith('imap_auth_')):
@@ -353,7 +352,7 @@ def dashboard():
     
     query = '''
         SELECT id, email, is_signed_in, unread_count, last_checked, last_error, 
-               date_added, login_count, failure_count, account_status
+               date_added, login_count, failure_count, account_status, access_token
         FROM accounts 
         WHERE 1=1
     '''
@@ -394,7 +393,8 @@ def dashboard():
             'login_count': row[7],
             'failure_count': row[8],
             'account_status': row[9],
-            'status_badge': get_status_badge(row[3], row[5], row[2])
+            'access_token': row[10],
+            'status_badge': get_status_badge(row[3], row[5], row[2], row[10])  # FIXED: Added access_token parameter
         })
     
     c.execute('''
@@ -731,6 +731,127 @@ def view_emails(account_id):
         flash(f'Error: {str(e)}', 'error')
         return redirect(url_for('dashboard'))
 
+@app.route('/view_email/<int:account_id>/<message_id>')
+@login_required
+def view_email(account_id, message_id):
+    """View full email content"""
+    conn = sqlite3.connect(app.config['DATABASE_FILE'])
+    c = conn.cursor()
+    c.execute("SELECT email, access_token FROM accounts WHERE id = ?", (account_id,))
+    row = c.fetchone()
+    conn.close()
+    
+    if not row:
+        flash('Account not found', 'error')
+        return redirect(url_for('dashboard'))
+    
+    email, access_token = row
+    
+    if not access_token:
+        flash('Not signed in or token expired', 'error')
+        return redirect(url_for('dashboard'))
+    
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json'
+    }
+    
+    try:
+        url = f'https://graph.microsoft.com/v1.0/me/messages/{message_id}'
+        params = {
+            '$select': 'subject,from,toRecipients,receivedDateTime,body,hasAttachments,attachments'
+        }
+        
+        response = requests.get(url, headers=headers, params=params)
+        
+        if response.status_code == 401:
+            new_access_token = refresh_token(account_id)
+            if new_access_token:
+                headers['Authorization'] = f'Bearer {new_access_token}'
+                response = requests.get(url, headers=headers, params=params)
+        
+        if response.status_code == 200:
+            email_data = response.json()
+            
+            sender = email_data.get('from', {}).get('emailAddress', {})
+            to_recipients = email_data.get('toRecipients', [])
+            body = email_data.get('body', {})
+            body_content = body.get('content', 'No content available')
+            
+            formatted_email = {
+                'subject': email_data.get('subject', 'No Subject'),
+                'from_name': sender.get('name', 'Unknown'),
+                'from_email': sender.get('address', ''),
+                'to_recipients': [recipient.get('emailAddress', {}).get('address', '') for recipient in to_recipients],
+                'received': email_data.get('receivedDateTime', ''),
+                'body': body_content,
+                'body_type': body.get('contentType', 'text'),
+                'has_attachments': email_data.get('hasAttachments', False),
+                'attachments': email_data.get('attachments', [])
+            }
+            
+            return render_template('email_detail.html', 
+                                 account_email=email,
+                                 account_id=account_id,
+                                 email=formatted_email,
+                                 message_id=message_id)
+        else:
+            flash(f'Error fetching email: {response.status_code}', 'error')
+            return redirect(url_for('view_emails', account_id=account_id))
+            
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'error')
+        return redirect(url_for('view_emails', account_id=account_id))
+
+@app.route('/mark_as_read/<int:account_id>/<message_id>')
+@login_required
+def mark_as_read(account_id, message_id):
+    """Mark a specific email as read and redirect to view it"""
+    conn = sqlite3.connect(app.config['DATABASE_FILE'])
+    c = conn.cursor()
+    c.execute("SELECT email, access_token FROM accounts WHERE id = ?", (account_id,))
+    row = c.fetchone()
+    conn.close()
+    
+    if not row:
+        flash('Account not found', 'error')
+        return redirect(url_for('dashboard'))
+    
+    email, access_token = row
+    
+    if not access_token:
+        flash('Not signed in or token expired', 'error')
+        return redirect(url_for('dashboard'))
+    
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json'
+    }
+    
+    try:
+        url = f'https://graph.microsoft.com/v1.0/me/messages/{message_id}'
+        data = {
+            'isRead': True
+        }
+        
+        response = requests.patch(url, headers=headers, json=data)
+        
+        if response.status_code == 401:
+            new_access_token = refresh_token(account_id)
+            if new_access_token:
+                headers['Authorization'] = f'Bearer {new_access_token}'
+                response = requests.patch(url, headers=headers, json=data)
+        
+        if response.status_code in [200, 204]:
+            return redirect(url_for('view_email', account_id=account_id, message_id=message_id))
+        else:
+            flash(f'Error marking email as read: {response.status_code}', 'error')
+            return redirect(url_for('view_email', account_id=account_id, message_id=message_id))
+            
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'error')
+        return redirect(url_for('view_email', account_id=account_id, message_id=message_id))
+
 @app.route('/telegram_settings', methods=['GET', 'POST'])
 @login_required
 def telegram_settings():
@@ -842,43 +963,6 @@ def nuclear_reset():
     
     flash('🚀 COMPLETE SYSTEM RESET - Cache cleared!', 'success')
     return redirect(url_for('batch_upload'))
-
-@app.route('/view_legacy_emails/<int:account_id>')
-@login_required
-def view_legacy_emails(account_id):
-    """View legacy auth accounts with credentials"""
-    conn = sqlite3.connect(app.config['DATABASE_FILE'])
-    c = conn.cursor()
-    c.execute("SELECT email, access_token FROM accounts WHERE id = ?", (account_id,))
-    row = c.fetchone()
-    conn.close()
-    
-    if not row:
-        flash('Account not found', 'error')
-        return redirect(url_for('dashboard'))
-    
-    email, access_token = row
-    
-    # Check if it's a legacy auth account
-    if access_token and (access_token.startswith('legacy_auth_') or access_token.startswith('imap_auth_')):
-        try:
-            import base64
-            import json
-            
-            # Decode the auth info
-            auth_info = json.loads(base64.b64decode(access_token).decode())
-            
-            return render_template('legacy_emails.html',
-                                 account_email=email,
-                                 account_id=account_id,
-                                 auth_info=auth_info)
-                                 
-        except Exception as e:
-            flash(f'Error decoding account info: {str(e)}', 'error')
-            return redirect(url_for('dashboard'))
-    else:
-        flash('This is not a legacy authentication account', 'error')
-        return redirect(url_for('dashboard'))
 
 if __name__ == '__main__':
     os.makedirs('uploads', exist_ok=True)
