@@ -88,7 +88,6 @@ class AutomationEngine:
                 'captcha_count': 0,
                 'current_worker': 'Initializing hybrid automation',
                 'start_time': datetime.now().isoformat(),
-                # Add progress metrics
                 'overall_progress_percent': 0,
                 'success_rate_percent': 0,
                 'completion_status': 'running'
@@ -152,19 +151,15 @@ class AutomationEngine:
         finally:
             self.is_running = False
             self.is_paused = False
-            # Force status update for frontend - be more aggressive
             if hasattr(self, 'status'):
                 total = self.status.get('total_accounts', 0)
-                # Ensure ALL accounts are marked as processed
                 self.status['processed_accounts'] = total
                 self.status['current_worker'] = '✅ Automation Completed'
                 self.status['overall_progress_percent'] = 100
                 self.status['completion_status'] = 'completed'
-                # Final calculations
                 successful = self.status.get('successful_logins', 0)
                 failed = self.status.get('failed_logins', 0)
                 self.status['success_rate_percent'] = int((successful / total) * 100) if total > 0 else 0
-                # Force frontend update
                 self.status['last_updated'] = datetime.now().isoformat()
             print("🔄 Automation engine reset - ready for next run")
 
@@ -173,20 +168,15 @@ class AutomationEngine:
         print(f"🔧 Attempting login for: {email}")
         print(f"🔧 Using proxy: {proxy[:50]}..." if proxy else "⚠️ No proxy provided")
         
-        # Simulate login process (for now - will replace with real API later)
         time.sleep(5)
         success = random.random() < 0.7
         
         if success:
             print(f"✅ Login successful: {email}")
-            
-            # ACTUALLY ADD TO DATABASE (REAL IMPLEMENTATION)
             try:
-                # Simulate getting access tokens (will replace with real API)
                 access_token = f"simulated_token_{uuid.uuid4().hex[:16]}"
                 refresh_token = f"simulated_refresh_{uuid.uuid4().hex[:16]}"
                 
-                # Add account to database
                 success = self.add_account_to_database(email, access_token, refresh_token)
                 if success:
                     print(f"📊 Successfully added {email} to database")
@@ -201,7 +191,6 @@ class AutomationEngine:
             return True
             
         else:
-            # Simulate failure
             failure_types = [
                 "Invalid credentials",
                 "Captcha required", 
@@ -218,36 +207,32 @@ class AutomationEngine:
             return False
 
     def get_status(self):
-    """Get current automation status - REQUIRED BY WEB INTERFACE"""
-    # If automation completed, ensure status reflects completion
-    if not self.is_running and hasattr(self, 'status'):
-        # Ensure completion state is clear
-        if self.status.get('current_worker') != 'Completed':
-            self.status['current_worker'] = 'Completed'
-            self.status['completion_status'] = 'completed'
-            # Force frontend refresh with updated timestamp
-            self.status['last_updated'] = datetime.now().isoformat()
-    
-    # Add timestamp to prevent caching
-    status = {
-        'total_accounts': 0,
-        'processed_accounts': 0,
-        'successful_logins': 0,
-        'failed_logins': 0,
-        'captcha_count': 0,
-        'current_worker': 'Not running',
-        'start_time': None,
-        'overall_progress_percent': 0,
-        'success_rate_percent': 0,
-        'completion_status': 'not_started',
-        'timestamp': datetime.now().isoformat()  # Force frontend refresh
-    }
-    
-    if hasattr(self, 'status'):
-        status.update(self.status)
-        status['timestamp'] = datetime.now().isoformat()  # Always fresh timestamp
-    
-    return status
+        """Get current automation status - REQUIRED BY WEB INTERFACE"""
+        if not self.is_running and hasattr(self, 'status'):
+            if self.status.get('current_worker') != 'Completed':
+                self.status['current_worker'] = 'Completed'
+                self.status['completion_status'] = 'completed'
+                self.status['last_updated'] = datetime.now().isoformat()
+        
+        status = {
+            'total_accounts': 0,
+            'processed_accounts': 0,
+            'successful_logins': 0,
+            'failed_logins': 0,
+            'captcha_count': 0,
+            'current_worker': 'Not running',
+            'start_time': None,
+            'overall_progress_percent': 0,
+            'success_rate_percent': 0,
+            'completion_status': 'not_started',
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        if hasattr(self, 'status'):
+            status.update(self.status)
+            status['timestamp'] = datetime.now().isoformat()
+        
+        return status
 
     def pause(self):
         self.is_paused = True
