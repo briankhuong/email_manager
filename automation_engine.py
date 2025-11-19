@@ -338,38 +338,53 @@ class AutomationEngine:
             return False
 
     def _try_legacy_auth(self, email, password, proxy):
-        """Fallback to legacy authentication approach"""
+        """Enhanced legacy authentication with IMAP support"""
         try:
             import base64
-            import json  # ← CRITICAL MISSING IMPORT ADDED
+            import json
             
-            print("🔄 Attempting legacy authentication...")
+            print("🔄 Attempting enhanced legacy authentication...")
             
-            # For legacy auth, we'll simulate a successful login and store credentials
-            # In production, this would use actual IMAP/SMTP authentication
+            # Try to authenticate via IMAP directly
+            imap_success = self._try_imap_auth(email, password, proxy)
             
-            # Generate placeholder tokens that indicate legacy auth
-            access_token = f"legacy_auth_{email}"
-            refresh_token = f"legacy_refresh_{email}"
-            
-            # Store additional authentication info
-            auth_info = {
-                'email': email,
-                'password': password,  # Note: In production, encrypt this!
-                'auth_method': 'legacy',
-                'timestamp': datetime.now().isoformat(),
-                'proxy_used': proxy
-            }
+            if imap_success:
+                # Generate proper tokens for IMAP access
+                access_token = f"imap_auth_{email}"
+                refresh_token = f"imap_refresh_{email}"
+                
+                auth_info = {
+                    'email': email,
+                    'password': password,  # Encrypt in production!
+                    'auth_method': 'imap',
+                    'proxy_used': proxy,
+                    'timestamp': datetime.now().isoformat(),
+                    'imap_server': 'outlook.office365.com',
+                    'imap_port': 993
+                }
+            else:
+                # Fallback to basic credential storage
+                access_token = f"legacy_auth_{email}"
+                refresh_token = f"legacy_refresh_{email}"
+                
+                auth_info = {
+                    'email': email,
+                    'password': password,  # Encrypt in production!
+                    'auth_method': 'legacy',
+                    'proxy_used': proxy,
+                    'timestamp': datetime.now().isoformat(),
+                    'note': 'Requires manual email setup'
+                }
             
             # Convert to string for storage
             auth_info_str = base64.b64encode(json.dumps(auth_info).encode()).decode()
             
-            # Add to database with legacy auth indicator
+            # Add to database
             success = self.add_account_to_database(email, auth_info_str, refresh_token)
             
             if success:
-                print(f"✅ Legacy authentication recorded for: {email}")
-                print("💡 Note: This account uses legacy authentication method")
+                auth_type = "IMAP" if imap_success else "legacy"
+                print(f"✅ {auth_type} authentication recorded for: {email}")
                 return True
             else:
                 return False
@@ -378,23 +393,46 @@ class AutomationEngine:
             print(f"⚠️ Legacy auth error: {e}")
             return False
 
-        def _prepare_proxy(self, proxy):
-            """Prepare proxy configuration"""
-            if not proxy:
-                return {}
+    def _try_imap_auth(self, email, password, proxy):
+        """Try IMAP authentication for Outlook/Hotmail"""
+        try:
+            import imaplib
+            import ssl
             
-            if 'http' in proxy or 'https' in proxy:
-                return {
-                    'http': proxy,
-                    'https': proxy
-                }
-            else:
-                # Assume it's HTTP proxy
-                return {
-                    'http': f"http://{proxy}",
-                    'https': f"http://{proxy}"
-                }
-
+            print(f"🔧 Testing IMAP authentication for: {email}")
+            
+            # Outlook IMAP settings
+            imap_server = 'outlook.office365.com'
+            imap_port = 993
+            
+            try:
+                # Create SSL context
+                context = ssl.create_default_context()
+                
+                # Connect to IMAP server
+                mail = imaplib.IMAP4_SSL(imap_server, imap_port, ssl_context=context)
+                
+                # Try to login
+                mail.login(email, password)
+                
+                # If successful, logout and return success
+                mail.logout()
+                print(f"✅ IMAP authentication successful for: {email}")
+                return True
+                
+            except imaplib.IMAP4.error as e:
+                print(f"❌ IMAP authentication failed: {e}")
+                return False
+            except Exception as e:
+                print(f"❌ IMAP connection error: {e}")
+                return False
+                
+        except ImportError:
+            print("⚠️ IMAP library not available - skipping IMAP test")
+            return False
+        except Exception as e:
+            print(f"⚠️ IMAP auth error: {e}")
+            return False
 
     def get_status(self):
         """Get current automation status - REQUIRED BY WEB INTERFACE"""

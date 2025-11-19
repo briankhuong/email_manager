@@ -151,17 +151,23 @@ def get_token_from_code(code):
     return result
 
 def refresh_token(account_id):
-    """Refresh access token using refresh token - FIXED VERSION"""
+    """Refresh access token using refresh token - ENHANCED VERSION"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
     c = conn.cursor()
-    c.execute("SELECT email, refresh_token FROM accounts WHERE id = ?", (account_id,))
+    c.execute("SELECT email, access_token, refresh_token FROM accounts WHERE id = ?", (account_id,))
     row = c.fetchone()
     
-    if not row or not row[1]:
+    if not row:
         conn.close()
         return None
         
-    email, refresh_token_value = row
+    email, access_token, refresh_token_value = row
+    
+    # Check if this is a legacy auth account
+    if access_token and access_token.startswith('legacy_auth_'):
+        print(f"⚠️ Legacy auth account {email} - cannot refresh token")
+        conn.close()
+        return None
     
     if not refresh_token_value:
         conn.close()
@@ -944,6 +950,43 @@ def nuclear_reset():
     
     flash('🚀 COMPLETE SYSTEM RESET - Cache cleared!', 'success')
     return redirect(url_for('batch_upload'))
+
+@app.route('/view_legacy_emails/<int:account_id>')
+@login_required
+def view_legacy_emails(account_id):
+    """View legacy auth accounts with credentials"""
+    conn = sqlite3.connect(app.config['DATABASE_FILE'])
+    c = conn.cursor()
+    c.execute("SELECT email, access_token FROM accounts WHERE id = ?", (account_id,))
+    row = c.fetchone()
+    conn.close()
+    
+    if not row:
+        flash('Account not found', 'error')
+        return redirect(url_for('dashboard'))
+    
+    email, access_token = row
+    
+    # Check if it's a legacy auth account
+    if access_token and (access_token.startswith('legacy_auth_') or access_token.startswith('imap_auth_')):
+        try:
+            import base64
+            import json
+            
+            # Decode the auth info
+            auth_info = json.loads(base64.b64decode(access_token).decode())
+            
+            return render_template('legacy_emails.html',
+                                 account_email=email,
+                                 account_id=account_id,
+                                 auth_info=auth_info)
+                                 
+        except Exception as e:
+            flash(f'Error decoding account info: {str(e)}', 'error')
+            return redirect(url_for('dashboard'))
+    else:
+        flash('This is not a legacy authentication account', 'error')
+        return redirect(url_for('dashboard'))
 
 if __name__ == '__main__':
     os.makedirs('uploads', exist_ok=True)
