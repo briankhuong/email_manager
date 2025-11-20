@@ -655,36 +655,47 @@ def delete_account(account_id):
 
 @app.route('/view_emails/<int:account_id>')
 @login_required
-def view_emails(account_id):
-    """View emails - HANDLES LEGACY ACCOUNTS PROPERLY"""
-    conn = sqlite3.connect(app.config['DATABASE_FILE'])
-    c = conn.cursor()
-    c.execute("SELECT email, access_token, refresh_token FROM accounts WHERE id = ?", (account_id,))
-    row = c.fetchone()
-    conn.close()
-    
-    if not row:
-        flash('Account not found', 'error')
-        return redirect(url_for('dashboard'))
-    
-    email, access_token, refresh_token = row
-    
-    # Check if it's a legacy auth account
-    if access_token and (access_token.startswith('legacy_auth_') or access_token.startswith('imap_auth_')):
-        flash(f'This account uses legacy authentication. Use an email client to access emails for {email}.', 'info')
-        return redirect(url_for('dashboard'))
-    
-    if not access_token:
-        flash('Not signed in or token expired', 'error')
-        return redirect(url_for('dashboard'))
-    
-    # Rest of your existing Graph API code for non-legacy accounts...
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json'
-    }
+def view_emails_function(account_id):  # CHANGED NAME to avoid conflicts
+    """View emails - WITH DEBUGGING"""
+    print(f"🔍 DEBUG: view_emails_function called with account_id: {account_id}")
     
     try:
+        # Test if functions are callable
+        print(f"🔍 DEBUG: Testing redirect function: {type(redirect)}")
+        print(f"🔍 DEBUG: Testing url_for function: {type(url_for)}")
+        print(f"🔍 DEBUG: Testing flash function: {type(flash)}")
+        
+        conn = sqlite3.connect(app.config['DATABASE_FILE'])
+        c = conn.cursor()
+        c.execute("SELECT email, access_token, refresh_token FROM accounts WHERE id = ?", (account_id,))
+        row = c.fetchone()
+        conn.close()
+        
+        if not row:
+            print("❌ DEBUG: Account not found")
+            flash('Account not found', 'error')
+            return redirect(url_for('dashboard'))
+        
+        email, access_token, refresh_token = row
+        print(f"🔍 DEBUG: Found account - Email: {email}")
+        
+        # Check if it's a legacy auth account
+        if access_token and (access_token.startswith('legacy_auth_') or access_token.startswith('imap_auth_')):
+            print(f"⚠️ DEBUG: Legacy account - {email}")
+            flash(f'This account uses legacy authentication. Use an email client to access emails for {email}.', 'info')
+            return redirect(url_for('dashboard'))
+        
+        if not access_token:
+            print("❌ DEBUG: No access token")
+            flash('Not signed in or token expired', 'error')
+            return redirect(url_for('dashboard'))
+        
+        print(f"🔍 DEBUG: Making Graph API request...")
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json'
+        }
+        
         url = 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages'
         params = {
             '$filter': 'isRead eq false',
@@ -694,16 +705,12 @@ def view_emails(account_id):
         }
         
         response = requests.get(url, headers=headers, params=params)
-        
-        if response.status_code == 401:
-            new_access_token = refresh_token(account_id)
-            if new_access_token:
-                headers['Authorization'] = f'Bearer {new_access_token}'
-                response = requests.get(url, headers=headers, params=params)
+        print(f"🔍 DEBUG: Graph API response: {response.status_code}")
         
         if response.status_code == 200:
             emails_data = response.json()
             emails = emails_data.get('value', [])
+            print(f"🔍 DEBUG: Found {len(emails)} emails")
             
             formatted_emails = []
             for email_msg in emails:
@@ -724,11 +731,17 @@ def view_emails(account_id):
                                  emails=formatted_emails,
                                  unread_count=len(emails))
         else:
-            flash(f'Error fetching emails: {response.status_code}', 'error')
+            error_msg = f'Error: {response.status_code}'
+            print(f"❌ DEBUG: {error_msg}")
+            flash(error_msg, 'error')
             return redirect(url_for('dashboard'))
             
     except Exception as e:
-        flash(f'Error: {str(e)}', 'error')
+        error_msg = f'Error: {str(e)}'
+        print(f"❌ DEBUG: Exception: {e}")
+        import traceback
+        print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
+        flash(error_msg, 'error')
         return redirect(url_for('dashboard'))
 
 @app.route('/mark_as_read/<int:account_id>/<message_id>')
