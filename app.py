@@ -731,77 +731,101 @@ def view_emails(account_id):
         flash(f'Error: {str(e)}', 'error')
         return redirect(url_for('dashboard'))
 
-@app.route('/view_email/<int:account_id>/<message_id>')
+@app.route('/view_emails/<int:account_id>')
 @login_required
-def view_email(account_id, message_id):
-    """View full email content"""
-    conn = sqlite3.connect(app.config['DATABASE_FILE'])
-    c = conn.cursor()
-    c.execute("SELECT email, access_token FROM accounts WHERE id = ?", (account_id,))
-    row = c.fetchone()
-    conn.close()
-    
-    if not row:
-        flash('Account not found', 'error')
-        return redirect(url_for('dashboard'))
-    
-    email, access_token = row
-    
-    if not access_token:
-        flash('Not signed in or token expired', 'error')
-        return redirect(url_for('dashboard'))
-    
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json'
-    }
+def view_emails(account_id):
+    """View emails - WITH PROPER ERROR HANDLING"""
+    print(f"🔍 DEBUG: view_emails called with account_id: {account_id}")
     
     try:
-        url = f'https://graph.microsoft.com/v1.0/me/messages/{message_id}'
+        conn = sqlite3.connect(app.config['DATABASE_FILE'])
+        c = conn.cursor()
+        c.execute("SELECT email, access_token, refresh_token FROM accounts WHERE id = ?", (account_id,))
+        row = c.fetchone()
+        conn.close()
+        
+        if not row:
+            flash('Account not found', 'error')
+            print(f"❌ DEBUG: Account {account_id} not found in database")
+            return redirect(url_for('dashboard'))
+        
+        email, access_token, refresh_token = row
+        print(f"🔍 DEBUG: Found account - Email: {email}, Access Token: {access_token[:50]}...")
+        
+        # Check if it's a legacy auth account
+        if access_token and (access_token.startswith('legacy_auth_') or access_token.startswith('imap_auth_')):
+            flash(f'This account uses legacy authentication. Use an email client to access emails for {email}.', 'info')
+            print(f"⚠️ DEBUG: Legacy account detected - {email}")
+            return redirect(url_for('dashboard'))
+        
+        if not access_token:
+            flash('Not signed in or token expired', 'error')
+            print(f"❌ DEBUG: No access token for {email}")
+            return redirect(url_for('dashboard'))
+        
+        # Rest of Graph API code
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        print(f"🔍 DEBUG: Making Graph API request for {email}")
+        
+        url = 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages'
         params = {
-            '$select': 'subject,from,toRecipients,receivedDateTime,body,hasAttachments,attachments'
+            '$filter': 'isRead eq false',
+            '$select': 'id,subject,from,receivedDateTime,bodyPreview,hasAttachments',
+            '$orderby': 'receivedDateTime DESC',
+            '$top': 50
         }
         
         response = requests.get(url, headers=headers, params=params)
+        print(f"🔍 DEBUG: Graph API response status: {response.status_code}")
         
         if response.status_code == 401:
+            print(f"🔍 DEBUG: Token expired, attempting refresh for {email}")
             new_access_token = refresh_token(account_id)
             if new_access_token:
                 headers['Authorization'] = f'Bearer {new_access_token}'
                 response = requests.get(url, headers=headers, params=params)
+                print(f"🔍 DEBUG: After refresh - status: {response.status_code}")
         
         if response.status_code == 200:
-            email_data = response.json()
+            emails_data = response.json()
+            emails = emails_data.get('value', [])
+            print(f"🔍 DEBUG: Successfully fetched {len(emails)} emails")
             
-            sender = email_data.get('from', {}).get('emailAddress', {})
-            to_recipients = email_data.get('toRecipients', [])
-            body = email_data.get('body', {})
-            body_content = body.get('content', 'No content available')
+            formatted_emails = []
+            for email_msg in emails:
+                sender = email_msg.get('from', {}).get('emailAddress', {})
+                formatted_emails.append({
+                    'id': email_msg.get('id'),
+                    'subject': email_msg.get('subject', 'No Subject'),
+                    'from_name': sender.get('name', 'Unknown'),
+                    'from_email': sender.get('address', ''),
+                    'received': email_msg.get('receivedDateTime', ''),
+                    'preview': email_msg.get('bodyPreview', '')[:200] + '...' if email_msg.get('bodyPreview') else 'No preview',
+                    'has_attachments': email_msg.get('hasAttachments', False)
+                })
             
-            formatted_email = {
-                'subject': email_data.get('subject', 'No Subject'),
-                'from_name': sender.get('name', 'Unknown'),
-                'from_email': sender.get('address', ''),
-                'to_recipients': [recipient.get('emailAddress', {}).get('address', '') for recipient in to_recipients],
-                'received': email_data.get('receivedDateTime', ''),
-                'body': body_content,
-                'body_type': body.get('contentType', 'text'),
-                'has_attachments': email_data.get('hasAttachments', False),
-                'attachments': email_data.get('attachments', [])
-            }
-            
-            return render_template('email_detail.html', 
+            return render_template('emails.html', 
                                  account_email=email,
                                  account_id=account_id,
-                                 email=formatted_email,
-                                 message_id=message_id)
+                                 emails=formatted_emails,
+                                 unread_count=len(emails))
         else:
-            flash(f'Error fetching email: {response.status_code}', 'error')
-            return redirect(url_for('view_emails', account_id=account_id))
+            error_msg = f'Error fetching emails: {response.status_code} - {response.text[:100]}'
+            flash(error_msg, 'error')
+            print(f"❌ DEBUG: {error_msg}")
+            return redirect(url_for('dashboard'))
             
     except Exception as e:
-        flash(f'Error: {str(e)}', 'error')
-        return redirect(url_for('view_emails', account_id=account_id))
+        error_msg = f'Error in view_emails: {str(e)}'
+        flash(error_msg, 'error')
+        print(f"❌ DEBUG: Exception in view_emails: {e}")
+        import traceback
+        print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
+        return redirect(url_for('dashboard'))
 
 @app.route('/mark_as_read/<int:account_id>/<message_id>')
 @login_required
@@ -947,6 +971,35 @@ def reset_automation():
     session.pop('upload_count', None)
     flash('Automation status reset successfully!', 'success')
     return redirect(url_for('batch_upload'))
+
+@app.route('/debug-routes')
+@login_required
+def debug_routes():
+    """Debug all routes to find conflicts"""
+    routes = []
+    for rule in app.url_map.iter_rules():
+        routes.append({
+            'endpoint': rule.endpoint,
+            'methods': list(rule.methods),
+            'rule': str(rule)
+        })
+    
+    # Check for duplicate endpoints
+    endpoints = {}
+    for route in routes:
+        endpoint = route['endpoint']
+        if endpoint in endpoints:
+            endpoints[endpoint].append(route)
+        else:
+            endpoints[endpoint] = [route]
+    
+    duplicates = {k: v for k, v in endpoints.items() if len(v) > 1}
+    
+    return jsonify({
+        'all_routes': routes,
+        'duplicate_endpoints': duplicates,
+        'view_emails_function': str(view_emails) if 'view_emails' in globals() else 'NOT FOUND'
+    })
 
 @app.route('/nuclear-reset')
 @login_required
