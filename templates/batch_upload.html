@@ -24,13 +24,13 @@
                         <h4 class="mb-0"><i class="fas fa-upload me-2"></i>Batch Account Upload</h4>
                     </div>
                     <div class="card-body">
-                        <form method="POST" enctype="multipart/form-data">
+                        <form method="POST" enctype="multipart/form-data" onsubmit="handleFormSubmit(event)">
                             <!-- Proxies Upload -->
                             <div class="mb-4">
                                 <h5><i class="fas fa-server me-2"></i>1. Upload Proxies</h5>
                                 <div class="mb-3">
                                     <label class="form-label">Proxies File (.txt)</label>
-                                    <input type="file" class="form-control" name="proxies_file" accept=".txt">
+                                    <input type="file" class="form-control" name="proxies_file" accept=".txt" required>
                                     <div class="form-text">
                                         Format: username:password@ip:port (one per line)<br>
                                         Example: user001:pass123@192.168.1.1:8080
@@ -43,7 +43,7 @@
                                 <h5><i class="fas fa-users me-2"></i>2. Upload Accounts</h5>
                                 <div class="mb-3">
                                     <label class="form-label">Accounts File (.xlsx or .csv)</label>
-                                    <input type="file" class="form-control" name="accounts_file" accept=".xlsx,.csv">
+                                    <input type="file" class="form-control" name="accounts_file" accept=".xlsx,.csv" required>
                                     <div class="form-text">
                                         Required columns: <code>email</code>, <code>password</code><br>
                                         Maximum: 100 accounts per batch
@@ -68,7 +68,7 @@
                             </div>
 
                             <div class="d-grid gap-2">
-                                <button type="submit" class="btn btn-primary btn-lg">
+                                <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
                                     <i class="fas fa-upload me-2"></i>Upload Files
                                 </button>
                                 <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
@@ -83,7 +83,7 @@
                             <h6><i class="fas fa-check-circle me-2"></i>Files Uploaded Successfully!</h6>
                             <p class="mb-2">{{ session.upload_count }} accounts ready for processing</p>
                             <div class="d-grid gap-2">
-                                <button class="btn btn-success" onclick="startAutomation()">
+                                <button class="btn btn-success" onclick="startAutomation()" id="startAutomationBtn">
                                     <i class="fas fa-play me-2"></i>Start Automation
                                 </button>
                             </div>
@@ -137,11 +137,43 @@
     <script>
         let monitoringInterval = null;
         let lastStatusHash = '';
+        let formSubmitted = false;
+        let automationStarted = false;
+
+        function handleFormSubmit(event) {
+            if (formSubmitted) {
+                event.preventDefault();
+                alert('Form already submitted! Please wait...');
+                return false;
+            }
+            formSubmitted = true;
+            
+            // Show loading state
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Uploading...';
+            
+            return true;
+        }
 
         function startAutomation() {
-            document.getElementById('automationStatus').style.display = 'block';
+            if (automationStarted) {
+                alert('Automation already started! Please wait for completion.');
+                return;
+            }
             
-            // CORRECTED ENDPOINT: /start_automation
+            automationStarted = true;
+            console.log("🚀 Starting automation...");
+            
+            // Disable start button
+            const startBtn = document.getElementById('startAutomationBtn');
+            startBtn.disabled = true;
+            startBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Starting...';
+            
+            // Show progress section
+            document.getElementById('automationStatus').style.display = 'block';
+            document.getElementById('statusText').textContent = 'Starting automation process...';
+            
             fetch('/start_automation', {
                 method: 'POST',
                 headers: {
@@ -151,14 +183,27 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
+                    console.log("✅ Automation started successfully");
+                    startBtn.innerHTML = '<i class="fas fa-sync-alt fa-spin me-2"></i>Processing...';
                     startMonitoring();
                 } else {
                     alert('Error: ' + data.error);
+                    console.error('Start automation error:', data.error);
+                    resetAutomationButton();
                 }
             })
             .catch(error => {
                 alert('Error: ' + error);
+                console.error('Start automation failed:', error);
+                resetAutomationButton();
             });
+        }
+
+        function resetAutomationButton() {
+            automationStarted = false;
+            const startBtn = document.getElementById('startAutomationBtn');
+            startBtn.disabled = false;
+            startBtn.innerHTML = '<i class="fas fa-play me-2"></i>Start Automation';
         }
 
         function startMonitoring() {
@@ -166,9 +211,10 @@
                 clearInterval(monitoringInterval);
             }
             
+            console.log("📊 Starting status monitoring...");
             monitoringInterval = setInterval(() => {
                 checkAutomationStatus();
-            }, 3000);
+            }, 2000); // Check every 2 seconds
         }
 
         function checkAutomationStatus() {
@@ -182,16 +228,31 @@
                         updateProgressDisplay(status);
                     }
                     
+                    // Stop monitoring when completed
                     if (status.completion_status === 'completed' || status.completion_status === 'error') {
+                        console.log("🛑 Automation finished, stopping monitoring");
                         if (monitoringInterval) {
                             clearInterval(monitoringInterval);
                             monitoringInterval = null;
                         }
-                    }
-                    
-                    if (status.completion_status === 'running' && status.processed_accounts >= status.total_accounts) {
-                        console.log("Status completed - forcing refresh");
-                        setTimeout(() => location.reload(true), 2000);
+                        
+                        // Update button state
+                        const startBtn = document.getElementById('startAutomationBtn');
+                        if (status.completion_status === 'completed') {
+                            startBtn.innerHTML = '<i class="fas fa-check me-2"></i>Completed';
+                            startBtn.classList.remove('btn-success');
+                            startBtn.classList.add('btn-outline-success');
+                            
+                            // Show completion message
+                            setTimeout(() => {
+                                document.getElementById('statusText').textContent += ' - ✅ DONE! Check dashboard for accounts.';
+                            }, 1000);
+                        } else {
+                            startBtn.innerHTML = '<i class="fas fa-times me-2"></i>Failed';
+                            startBtn.classList.remove('btn-success');
+                            startBtn.classList.add('btn-outline-danger');
+                            resetAutomationButton();
+                        }
                     }
                 })
                 .catch(error => {
@@ -215,20 +276,26 @@
             
             if (status.completion_status === 'completed') {
                 text = '✅ AUTOMATION COMPLETED | ';
+                progressBar.classList.remove('bg-primary', 'bg-danger');
                 progressBar.classList.add('bg-success');
             } else if (status.completion_status === 'error') {
                 text = '❌ AUTOMATION ERROR | ';
+                progressBar.classList.remove('bg-primary', 'bg-success');
                 progressBar.classList.add('bg-danger');
             } else if (status.completion_status === 'running') {
                 text = '🔄 PROCESSING | ';
                 progressBar.classList.remove('bg-success', 'bg-danger');
                 progressBar.classList.add('bg-primary');
+            } else {
+                text = '⏳ WAITING | ';
+                progressBar.classList.remove('bg-success', 'bg-danger', 'bg-primary');
+                progressBar.classList.add('bg-secondary');
             }
             
             text += `Processed: ${status.processed_accounts || 0}/${status.total_accounts || 0}`;
             
             if (status.overall_progress_percent) {
-                text += ` (${status.overall_progress_percent}%)`;
+                text += ` (${Math.round(percentage)}%)`;
             }
             
             text += ` | Success: ${status.successful_logins || 0}`;
@@ -238,16 +305,16 @@
                 text += ` | Success Rate: ${status.success_rate_percent}%`;
             }
             
-            if (status.current_worker && status.completion_status === 'running') {
-                text += ` | Current: ${status.current_worker}`;
+            if (status.current_worker) {
+                text += ` | Status: ${status.current_worker}`;
             }
             
             statusText.textContent = text;
-            
-            document.getElementById('automationStatus').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            console.log("📈 Progress update:", text);
         }
 
         document.addEventListener('DOMContentLoaded', function() {
+            console.log("📄 Page loaded, checking for automation status");
             {% if session.get('upload_count') %}
             checkAutomationStatus();
             {% endif %}

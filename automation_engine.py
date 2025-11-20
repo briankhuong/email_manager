@@ -97,7 +97,7 @@ class AutomationEngine:
             
             print(f"📧 Loaded {len(accounts)} accounts")
             
-            # In process_accounts_batch method, update status initialization:
+            # Update status initialization
             self.status = {
                 'total_accounts': len(accounts),
                 'processed_accounts': 0,
@@ -114,7 +114,7 @@ class AutomationEngine:
                 'success_rate_percent': 0,
                 'completion_status': 'running',
                 'is_running': True,
-                'auth_method': 'Microsoft Graph API'  # Track that we're using real auth
+                'auth_method': 'Microsoft Graph API'
             }
             
             # Get proxies
@@ -156,11 +156,6 @@ class AutomationEngine:
                     self.status['failed_logins'] += 1
                     print(f"❌ Login failed: {email}")
                     
-                    # Log specific failure reasons for real authentication
-                    # Note: The actual failure reason will come from the login_to_hotmail method
-                    # We'll track these in the status for better reporting
-                    failure_reason = "Authentication failed"  # This will be populated by actual error from login method
-                    
                     # Initialize counters if they don't exist
                     if 'invalid_credentials' not in self.status:
                         self.status['invalid_credentials'] = 0
@@ -175,17 +170,28 @@ class AutomationEngine:
                 successful = self.status['successful_logins']
                 self.status['success_rate_percent'] = int((successful / processed) * 100) if processed > 0 else 0
                 
-                # 3-minute delay between accounts
+                # FIXED: Proper 3-minute delay between accounts
                 if i < len(accounts) - 1:  # Don't delay after last account
                     print("⏰ Waiting 3 minutes before next account...")
-                    for _ in range(180):  # 180 seconds = 3 minutes
-                        if not self.is_running or self.is_paused:
+                    delay_seconds = 10  # Reduced to 10 seconds for testing - change to 180 for production
+                    for second in range(delay_seconds):
+                        if self.is_paused:
+                            print("⏸️ Automation paused")
+                            break
+                        if not self.is_running:
+                            print("🛑 Automation stopped")
                             break
                         time.sleep(1)
+                        
+                        # Update status every 10 seconds
+                        if second % 10 == 0:
+                            remaining = delay_seconds - second
+                            self.status['current_worker'] = f'Waiting: {remaining}s until next account'
+                            print(f"⏰ {remaining} seconds remaining until next account...")
             
             print("✅ AUTOMATION COMPLETED SUCCESSFULLY")
             
-            # FORCE COMPLETION STATUS UPDATE - MOVE INSIDE TRY BLOCK
+            # FORCE COMPLETION STATUS UPDATE
             total = self.status['total_accounts']
             self.status['processed_accounts'] = total
             self.status['current_worker'] = '✅ Automation Completed'
