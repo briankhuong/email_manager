@@ -595,7 +595,8 @@ def login():
     """Redirect to Microsoft login"""
     auth_url = get_msal_app().get_authorization_request_url(
         scopes=app.config['SCOPE'],
-        redirect_uri=app.config['REDIRECT_URI']
+        redirect_uri=app.config['REDIRECT_URI'],
+        prompt='select_account'  # <--- ADD THIS EXACT LINE
     )
     return redirect(auth_url)
 
@@ -655,7 +656,7 @@ def delete_account(account_id):
 
 @app.route('/view_emails/<int:account_id>')
 @login_required
-def view_emails_function(account_id):  # CHANGED NAME to avoid conflicts
+def view_emails(account_id): # CHANGED NAME to avoid conflicts
     """View emails - WITH DEBUGGING"""
     print(f"🔍 DEBUG: view_emails_function called with account_id: {account_id}")
     
@@ -743,6 +744,57 @@ def view_emails_function(account_id):  # CHANGED NAME to avoid conflicts
         print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
         flash(error_msg, 'error')
         return redirect(url_for('dashboard'))
+@app.route('/view_email/<int:account_id>/<message_id>')
+@login_required
+def view_email(account_id, message_id):
+    """Bridge that fetches data from Microsoft and sends it to email_detail.html"""
+    conn = sqlite3.connect(app.config['DATABASE_FILE'])
+    c = conn.cursor()
+    c.execute("SELECT email, access_token FROM accounts WHERE id = ?", (account_id,))
+    row = c.fetchone()
+    conn.close()
+
+    if not row:
+        flash('Account not found', 'error')
+        return redirect(url_for('dashboard'))
+
+    email_address, access_token = row
+    headers = {'Authorization': f'Bearer {access_token}'}
+
+    # 1. Fetch the specific email content from Microsoft Graph
+    url = f'https://graph.microsoft.com/v1.0/me/messages/{message_id}'
+    response = requests.get(url, headers=headers)
+
+    # 2. Handle token expiration automatically
+    if response.status_code == 401:
+        access_token = refresh_token(account_id)
+        if access_token:
+            headers['Authorization'] = f'Bearer {access_token}'
+            response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        data = response.json()
+        
+        # 3. Format data to match your template's variable names
+        formatted_email = {
+            'subject': data.get('subject', 'No Subject'),
+            'from_name': data.get('from', {}).get('emailAddress', {}).get('name'),
+            'from_email': data.get('from', {}).get('emailAddress', {}).get('address'),
+            'to_recipients': [r.get('emailAddress', {}).get('address') for r in data.get('toRecipients', [])],
+            'received': data.get('receivedDateTime', ''),
+            'body': data.get('body', {}).get('content', ''),
+            'body_type': data.get('body', {}).get('contentType', 'html').lower(),
+            'has_attachments': data.get('hasAttachments', False),
+            'attachments': [] # Basic view; actual file data requires a separate /attachments call
+        }
+
+        return render_template('email_detail.html', 
+                             email=formatted_email, 
+                             account_email=email_address, 
+                             account_id=account_id)
+    else:
+        flash(f"Error {response.status_code}: Could not fetch email content.", "error")
+        return redirect(url_for('view_emails', account_id=account_id))
 
 @app.route('/mark_as_read/<int:account_id>/<message_id>')
 @login_required
