@@ -15,11 +15,16 @@ class Config:
     CLIENT_ID = os.environ.get('CLIENT_ID')
     CLIENT_SECRET = os.environ.get('CLIENT_SECRET')
     AUTHORITY = "https://login.microsoftonline.com/common"
-    SCOPE = ["https://graph.microsoft.com/Mail.Read", "https://graph.microsoft.com/Mail.ReadWrite", "https://graph.microsoft.com/User.Read"]
-    
+    # offline_access is REQUIRED to get a refresh_token back from Microsoft
+    SCOPE = [
+        "https://graph.microsoft.com/Mail.Read", 
+        "https://graph.microsoft.com/User.Read", 
+        "offline_access"
+    ]
     # Use Railway provided URL
-    REDIRECT_URI = os.environ.get('REDIRECT_URI', 'https://web-production-ce43f.up.railway.app')
-    
+    # This ensures that if you are running locally, it uses localhost. 
+    # If you are on Railway, it uses the environment variable.
+    REDIRECT_URI = os.environ.get('REDIRECT_URI', 'http://localhost:5001')
     # Telegram configuration (optional)
     TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
     TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')

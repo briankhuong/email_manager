@@ -7,21 +7,40 @@ class ProxyManager:
         self.current_proxies_file = None
         
     def load_proxies_from_file(self, file):
-        """Load proxies from uploaded file"""
+        """Load proxies from uploaded file - Supports IP:PORT:USER:PASS"""
         content = file.read().decode('utf-8')
         lines = content.strip().split('\n')
         
         self.proxies = []
         for line in lines:
             line = line.strip()
-            if line and not line.startswith('#'):
-                self.proxies.append(line)
+            if not line or line.startswith('#'):
+                continue
+            
+            # Split by colon to check format
+            parts = line.split(':')
+            
+            if len(parts) == 4:
+                # Format: IP:PORT:USER:PASS -> http://USER:PASS@IP:PORT
+                # This is the ONLY format that allows authenticated requests
+                formatted = f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+                self.proxies.append(formatted)
+            elif len(parts) == 2:
+                # Format: IP:PORT -> http://IP:PORT
+                self.proxies.append(f"http://{line}")
+            else:
+                # Fallback: just add http:// if it's missing
+                if not line.startswith('http'):
+                    self.proxies.append(f"http://{line}")
+                else:
+                    self.proxies.append(line)
         
-        # Save to file for persistence
+        # Save the properly formatted proxies for persistence
         self.current_proxies_file = 'uploads/current_proxies.txt'
         os.makedirs('uploads', exist_ok=True)
         with open(self.current_proxies_file, 'w') as f:
-            f.write(content)
+            # Join with newlines so the file stays readable
+            f.write('\n'.join(self.proxies))
         
         return len(self.proxies)
     

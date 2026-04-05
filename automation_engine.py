@@ -18,8 +18,8 @@ class AutomationEngine:
         self.status = {}
         print("✅ AutomationEngine initialized with hybrid approach")
 
-    def add_account_to_database(self, email, access_token, refresh_token):
-        """Actually add account to the database"""
+    def add_account_to_database(self, email, access_token, refresh_token, client_id=None):
+        """Actually add account to the database with Client ID support"""
         try:
             # Use the same database file as your app
             conn = sqlite3.connect(Config.DATABASE_FILE)
@@ -30,24 +30,25 @@ class AutomationEngine:
             existing = c.fetchone()
             
             current_time = datetime.now()
-            
+                        
             if existing:
                 # Update existing account
                 c.execute('''
                     UPDATE accounts 
                     SET access_token = ?, refresh_token = ?, is_signed_in = 1,
-                        last_checked = ?, last_error = NULL, login_count = login_count + 1
+                        last_checked = ?, last_error = NULL, login_count = login_count + 1,
+                        client_id = ?
                     WHERE email = ?
-                ''', (access_token, refresh_token, current_time, email))
+                ''', (access_token, refresh_token, current_time, client_id, email))
                 print(f"🔄 Updated existing account: {email}")
             else:
                 # Insert new account
                 c.execute('''
                     INSERT INTO accounts 
                     (email, access_token, refresh_token, is_signed_in, last_checked, 
-                     unread_count, last_error, login_count, date_added)
-                    VALUES (?, ?, ?, 1, ?, 0, NULL, 1, ?)
-                ''', (email, access_token, refresh_token, current_time, current_time))
+                     unread_count, last_error, login_count, date_added, client_id)
+                    VALUES (?, ?, ?, 1, ?, 0, NULL, 1, ?, ?)
+                ''', (email, access_token, refresh_token, current_time, current_time, client_id))
                 print(f"🆕 Added new account: {email}")
             
             conn.commit()
@@ -130,24 +131,39 @@ class AutomationEngine:
                     
                 email = account['email']
                 password = account['password']
-                proxy = proxies[i % len(proxies)]  # Round-robin proxy assignment
+                # Get seller data if it exists in CSV
+                token_from_file = account.get('refresh_token')
+                client_id_from_file = account.get('client_id')
                 
-                print(f"🔧 Processing account {i+1}: {email} with proxy {proxy[:20]}...")
+                proxy = proxies[i % len(proxies)]
                 
-                # Update status
+                print(f"🔧 Processing account {i+1}: {email}...")
+                
                 self.status['processed_accounts'] = i + 1
                 self.status['current_worker'] = f'Processing: {email}'
 
-                # Calculate progress metrics
+               # Logic: If we have a token, skip the risky login process
+                if token_from_file and len(token_from_file) > 50:
+                    print(f"⏩ Found Refresh Token for {email}. Bypassing login security...")
+                    # Pass the specific client_id from the seller
+                    success = self.add_account_to_database(
+                        email, 
+                        "initial_sync_required", 
+                        token_from_file, 
+                        client_id=client_id_from_file
+                    )
+                else:
+                    # Fallback to manual login if no token is provided
+                    success = self.login_to_hotmail(email, password, proxy)
+
+                # Update progress stats
                 total = self.status['total_accounts']
                 processed = self.status['processed_accounts']
-                successful = self.status['successful_logins']
-
-                self.status['overall_progress_percent'] = int((processed / total) * 100) if total > 0 else 0
-                self.status['success_rate_percent'] = int((successful / processed) * 100) if processed > 0 else 0
                 
-                # Try login with REAL Microsoft authentication
-                success = self.login_to_hotmail(email, password, proxy)
+                if success:
+                    self.status['successful_logins'] += 1
+                else:
+                    self.status['failed_logins'] += 1
 
                 if success:
                     self.status['successful_logins'] += 1

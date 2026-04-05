@@ -27,52 +27,6 @@ proxy_manager = ProxyManager()
 telegram_notifier = TelegramNotifier()
 automation_engine = AutomationEngine(proxy_manager, telegram_notifier)
 
-# Simple password protection
-APP_USERNAME = "lbasapp"
-APP_PASSWORD = "Ngoc@123"
-
-def check_auth(auth_header):
-    """Check if authorized"""
-    if not auth_header:
-        return False
-    try:
-        auth_type, auth_string = auth_header.split(' ', 1)
-        if auth_type.lower() != 'basic':
-            return False
-        decoded = base64.b64decode(auth_string).decode('utf-8')
-        username, password = decoded.split(':', 1)
-        return username == APP_USERNAME and password == APP_PASSWORD
-    except:
-        return False
-
-def login_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if session.get('authenticated'):
-            return f(*args, **kwargs)
-        auth_header = request.headers.get('Authorization')
-        if check_auth(auth_header):
-            session['authenticated'] = True
-            return f(*args, **kwargs)
-        return Response(
-            'Email Manager - Login Required',
-            401,
-            {'WWW-Authenticate': 'Basic realm="Email Manager Login"'}
-        )
-    return decorated
-
-@app.before_request
-def require_login():
-    if request.endpoint and ('static' in request.endpoint or request.endpoint == 'logout'):
-        return
-    return login_required(lambda: None)()
-
-@app.route('/logout')
-def logout():
-    """Logout and clear session"""
-    session.pop('authenticated', None)
-    return redirect('/')
-
 def init_db():
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
     c = conn.cursor()
@@ -90,7 +44,8 @@ def init_db():
             login_count INTEGER DEFAULT 0,
             failure_count INTEGER DEFAULT 0,
             proxy_slot TEXT,
-            account_status TEXT DEFAULT 'active'
+            account_status TEXT DEFAULT 'active',
+            client_id TEXT
         )
     ''')
     conn.commit()
@@ -111,7 +66,8 @@ def migrate_database():
         'login_count', 
         'failure_count',
         'proxy_slot',
-        'account_status'
+        'account_status',
+        'client_id'
     ]
     
     for column in new_columns:
@@ -126,6 +82,8 @@ def migrate_database():
                 c.execute(f'ALTER TABLE accounts ADD COLUMN {column} TEXT')
             elif column == 'account_status':
                 c.execute(f'ALTER TABLE accounts ADD COLUMN {column} TEXT DEFAULT "active"')
+            elif column == 'client_id':
+                c.execute(f'ALTER TABLE accounts ADD COLUMN {column} TEXT')
     
     conn.commit()
     conn.close()
@@ -151,17 +109,19 @@ def get_token_from_code(code):
     return result
 
 def refresh_token(account_id):
-    """Refresh access token - SKIPS LEGACY ACCOUNTS"""
+    """Refresh access token - Dynamic Client ID Support"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
     c = conn.cursor()
-    c.execute("SELECT email, access_token, refresh_token FROM accounts WHERE id = ?", (account_id,))
+    # Get client_id from DB
+    c.execute("SELECT email, access_token, refresh_token, client_id FROM accounts WHERE id = ?", (account_id,))
     row = c.fetchone()
     
     if not row:
         conn.close()
         return None
         
-    email, access_token, refresh_token_value = row
+    # Catch all 4 values: email, access_token, refresh_token, and client_id
+    email, access_token, refresh_token_value, client_id_from_db = row
     
     # Skip legacy/auth accounts that can't use Graph API
     if (access_token and 
@@ -177,10 +137,29 @@ def refresh_token(account_id):
         return None
     
     try:
-        app_instance = get_msal_app()
+        # Use stored client_id or fallback to config
+        target_client_id = client_id_from_db if client_id_from_db else app.config['CLIENT_ID']
+        
+        # If the ID isn't your own, it's a Public Client (No Secret required)
+        if client_id_from_db and client_id_from_db != app.config['CLIENT_ID']:
+            app_instance = msal.PublicClientApplication(
+                target_client_id,
+                authority=app.config['AUTHORITY']
+            )
+        else:
+            app_instance = get_msal_app()
+
+# We need to filter out 'offline_access' because MSAL rejects it during the refresh step
+        request_scopes = [s for s in app.config['SCOPE'] if s != 'offline_access']
+        
+        if client_id_from_db and client_id_from_db != app.config['CLIENT_ID']:
+            # Use ONLY .default for seller accounts. Do NOT include offline_access here.
+            request_scopes = ['https://graph.microsoft.com/.default']
+            print(f"📡 Using compatibility scopes for seller account: {email}")
+
         result = app_instance.acquire_token_by_refresh_token(
             refresh_token_value,
-            scopes=app.config['SCOPE']
+            scopes=request_scopes
         )
         
         if 'access_token' in result:
@@ -341,7 +320,6 @@ def get_status_badge(unread_count, last_error, is_signed_in, access_token):
         return '🔵'
 
 @app.route('/dashboard')
-@login_required
 def dashboard():
     """Display the accounts dashboard with compact list view"""
     status_filter = request.args.get('status', 'all')
@@ -429,7 +407,6 @@ def dashboard():
                          search_query=search_query)
 
 @app.route('/batch_upload', methods=['GET', 'POST'])
-@login_required
 def batch_upload():
     """Batch upload interface for proxies and accounts"""
     if request.method == 'POST':
@@ -447,31 +424,40 @@ def batch_upload():
             if accounts_file.filename != '':
                 try:
                     content = accounts_file.read().decode('utf-8')
-                    csv_reader = csv.DictReader(StringIO(content))
-                    accounts = list(csv_reader)
+                    lines = content.strip().split('\n')
+                    accounts = []
                     
-                    if not accounts or 'email' not in accounts[0] or 'password' not in accounts[0]:
-                        flash('File must contain "email" and "password" columns', 'error')
+                    for line in lines:
+                        parts = line.strip().split('|')
+                        if len(parts) >= 2:
+                            accounts.append({
+                                'email': parts[0].strip(),
+                                'password': parts[1].strip(),
+                                'refresh_token': parts[2].strip() if len(parts) > 2 else '',
+                                'client_id': parts[3].strip() if len(parts) > 3 else ''
+                            })
+                    
+                    if not accounts:
+                        flash('No valid accounts found in file.', 'error')
                     else:
                         upload_id = str(uuid.uuid4())
                         upload_file = f'uploads/accounts_{upload_id}.csv'
                         os.makedirs('uploads', exist_ok=True)
                         
                         with open(upload_file, 'w', newline='') as f:
-                            writer = csv.DictWriter(f, fieldnames=['email', 'password'])
+                            writer = csv.DictWriter(f, fieldnames=['email', 'password', 'refresh_token', 'client_id'])
                             writer.writeheader()
                             writer.writerows(accounts)
                         
                         session['current_upload'] = upload_file
                         session['upload_count'] = len(accounts)
-                        flash(f'Accounts uploaded successfully! {len(accounts)} accounts ready for processing.', 'success')
+                        flash(f'Uploaded {len(accounts)} accounts successfully!', 'success')
                 except Exception as e:
-                    flash(f'Error uploading accounts: {str(e)}', 'error')
+                    flash(f'Error processing file: {str(e)}', 'error')
     
     return render_template('batch_upload.html')
-
 @app.route('/start_automation', methods=['POST'])
-@login_required
+
 def start_automation():
     """Start the automation process"""
     if 'current_upload' not in session:
@@ -497,7 +483,7 @@ def start_automation():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/automation_status')
-@login_required
+
 def automation_status():
     """Get current automation status"""
     status = automation_engine.get_status()
@@ -512,21 +498,21 @@ def automation_status():
     return jsonify(status)
 
 @app.route('/pause_automation', methods=['POST'])
-@login_required
+
 def pause_automation():
     """Pause automation"""
     automation_engine.pause()
     return jsonify({'success': True, 'message': 'Automation paused'})
 
 @app.route('/resume_automation', methods=['POST'])
-@login_required
+
 def resume_automation():
     """Resume automation"""
     automation_engine.resume()
     return jsonify({'success': True, 'message': 'Automation resumed'})
 
 @app.route('/download_results')
-@login_required
+
 def download_results():
     """Download processing results"""
     results_file = automation_engine.get_results_file()
@@ -537,7 +523,7 @@ def download_results():
         return redirect(url_for('dashboard'))
 
 @app.route('/bulk_action', methods=['POST'])
-@login_required
+
 def bulk_action():
     """Perform bulk actions on selected accounts"""
     account_ids = request.json.get('account_ids', [])
@@ -592,7 +578,7 @@ def bulk_action():
     return jsonify({'success': True})
 
 @app.route('/login')
-@login_required
+
 def login():
     """Redirect to Microsoft login"""
     auth_url = get_msal_app().get_authorization_request_url(
@@ -603,13 +589,13 @@ def login():
     return redirect(auth_url)
 
 @app.route('/add_account')
-@login_required
+
 def add_account():
     """Redirect to Microsoft login to add an account"""
     return redirect(url_for('login'))
 
 @app.route('/sign_out_all')
-@login_required
+
 def sign_out_all():
     """Sign out all accounts"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -621,7 +607,7 @@ def sign_out_all():
     return redirect(url_for('dashboard'))
 
 @app.route('/sign_out/<int:account_id>')
-@login_required
+
 def sign_out(account_id):
     """Sign out a specific account"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -633,7 +619,7 @@ def sign_out(account_id):
     return redirect(url_for('dashboard'))
 
 @app.route('/sign_in/<int:account_id>')
-@login_required
+
 def sign_in(account_id):
     """Sign in a specific account"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -645,7 +631,7 @@ def sign_in(account_id):
     return redirect(url_for('dashboard'))
 
 @app.route('/delete_account/<int:account_id>')
-@login_required
+
 def delete_account(account_id):
     """Delete a specific account"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -657,7 +643,7 @@ def delete_account(account_id):
     return redirect(url_for('dashboard'))
 
 @app.route('/view_emails/<int:account_id>')
-@login_required
+
 def view_emails(account_id): # CHANGED NAME to avoid conflicts
     """View emails - WITH DEBUGGING"""
     print(f"🔍 DEBUG: view_emails_function called with account_id: {account_id}")
@@ -679,7 +665,8 @@ def view_emails(account_id): # CHANGED NAME to avoid conflicts
             flash('Account not found', 'error')
             return redirect(url_for('dashboard'))
         
-        email, access_token, refresh_token = row
+# Rename refresh_token to refresh_token_val to avoid overwriting the function name
+        email, access_token, refresh_token_val = row
         print(f"🔍 DEBUG: Found account - Email: {email}")
         
         # Check if it's a legacy auth account
@@ -710,6 +697,15 @@ def view_emails(account_id): # CHANGED NAME to avoid conflicts
         response = requests.get(url, headers=headers, params=params)
         print(f"🔍 DEBUG: Graph API response: {response.status_code}")
         
+        # AUTO-FIX: If token is expired or was a "dummy" token from batch upload
+        if response.status_code == 401:
+            print(f"🔄 Token expired or dummy found for {email}. Attempting auto-refresh...")
+            access_token = refresh_token(account_id)
+            if access_token:
+                headers['Authorization'] = f'Bearer {access_token}'
+                response = requests.get(url, headers=headers, params=params)
+                print(f"✅ Auto-refresh successful. New response: {response.status_code}")
+
         if response.status_code == 200:
             emails_data = response.json()
             emails = emails_data.get('value', [])
@@ -747,7 +743,7 @@ def view_emails(account_id): # CHANGED NAME to avoid conflicts
         flash(error_msg, 'error')
         return redirect(url_for('dashboard'))
 @app.route('/view_email/<int:account_id>/<message_id>')
-@login_required
+
 def view_email(account_id, message_id):
     """Bridge that fetches data from Microsoft and sends it to email_detail.html"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -799,7 +795,7 @@ def view_email(account_id, message_id):
         return redirect(url_for('view_emails', account_id=account_id))
 
 @app.route('/mark_as_read/<int:account_id>/<message_id>')
-@login_required
+
 def mark_as_read(account_id, message_id):
     """Mark a specific email as read and redirect to view it"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
@@ -848,7 +844,7 @@ def mark_as_read(account_id, message_id):
         return redirect(url_for('view_email', account_id=account_id, message_id=message_id))
 
 @app.route('/telegram_settings', methods=['GET', 'POST'])
-@login_required
+
 def telegram_settings():
     """Configure Telegram notifications"""
     if request.method == 'POST':
@@ -864,7 +860,7 @@ def telegram_settings():
     return render_template('telegram_settings.html')
 
 @app.route('/debug-automation')
-@login_required
+
 def debug_automation():
     """Debug automation engine status"""
     import inspect
@@ -892,7 +888,7 @@ def debug_automation():
     return jsonify(result)
 
 @app.route('/debug-cache')
-@login_required
+
 def debug_cache():
     """Debug cache status"""
     return jsonify({
@@ -907,7 +903,7 @@ def debug_cache():
     })
 
 @app.route('/debug-status')
-@login_required
+
 def debug_status():
     """Debug automation status in detail"""
     status = automation_engine.get_status()
@@ -926,13 +922,13 @@ def debug_status():
     })
 
 @app.route('/api/automation/start', methods=['POST'])
-@login_required
+
 def api_start_automation():
     """API endpoint for starting automation - ALIAS FOR /start_automation"""
     return start_automation()
 
 @app.route('/reset-automation')
-@login_required
+
 def reset_automation():
     """Reset automation engine status"""
     automation_engine.is_running = False
@@ -944,7 +940,7 @@ def reset_automation():
     return redirect(url_for('batch_upload'))
 
 @app.route('/debug-routes')
-@login_required
+
 def debug_routes():
     """Debug all routes to find conflicts"""
     routes = []
@@ -973,7 +969,7 @@ def debug_routes():
     })
 
 @app.route('/nuclear-reset')
-@login_required
+
 def nuclear_reset():
     """COMPLETE reset of automation state"""
     automation_engine.is_running = False
@@ -996,22 +992,23 @@ def nuclear_reset():
 
 # --- MOVE THIS BLOCK UP ---
 @app.route('/refresh_account/<int:account_id>')
-@login_required
 def refresh_account(account_id):
     """Manual sync for a specific account"""
     conn = sqlite3.connect(app.config['DATABASE_FILE'])
     c = conn.cursor()
-    c.execute("SELECT access_token FROM accounts WHERE id = ?", (account_id,))
+    # Fetch the token and email needed for the sync
+    c.execute("SELECT access_token, email FROM accounts WHERE id = ?", (account_id,))
     row = c.fetchone()
     
     if not row:
         conn.close()
         return redirect(url_for('dashboard'))
 
-    access_token = row[0]
+    access_token, email = row
     count, error = get_unread_emails_count(access_token)
     
     if error == "UNAUTHORIZED":
+        # This will use your new compatibility logic in refresh_token()
         access_token = refresh_token(account_id)
         if access_token:
             count, error = get_unread_emails_count(access_token)
@@ -1025,7 +1022,7 @@ def refresh_account(account_id):
     
     conn.commit()
     conn.close()
-    flash('Account synced successfully', 'success')
+    flash(f'Account {email} synced successfully', 'success')
     return redirect(url_for('dashboard'))
 
 # --- THIS SHOULD BE THE VERY LAST THING IN THE FILE ---

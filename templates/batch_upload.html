@@ -26,14 +26,14 @@
                     <div class="card-body">
                         <form method="POST" enctype="multipart/form-data" onsubmit="handleFormSubmit(event)">
                             <!-- Proxies Upload -->
-                            <div class="mb-4">
+<div class="mb-4">
                                 <h5><i class="fas fa-server me-2"></i>1. Upload Proxies</h5>
                                 <div class="mb-3">
                                     <label class="form-label">Proxies File (.txt)</label>
                                     <input type="file" class="form-control" name="proxies_file" accept=".txt" required>
                                     <div class="form-text">
-                                        Format: username:password@ip:port (one per line)<br>
-                                        Example: user001:pass123@192.168.1.1:8080
+                                        Format: <code>IP:PORT:USER:PASS</code> (one per line)<br>
+                                        Example: 160.22.173.250:32608:user:pass
                                     </div>
                                 </div>
                             </div>
@@ -42,11 +42,11 @@
                             <div class="mb-4">
                                 <h5><i class="fas fa-users me-2"></i>2. Upload Accounts</h5>
                                 <div class="mb-3">
-                                    <label class="form-label">Accounts File (.xlsx or .csv)</label>
-                                    <input type="file" class="form-control" name="accounts_file" accept=".xlsx,.csv" required>
+                                    <label class="form-label">Accounts File (.txt)</label>
+                                    <input type="file" class="form-control" name="accounts_file" accept=".txt,.csv" required>
                                     <div class="form-text">
-                                        Required columns: <code>email</code>, <code>password</code><br>
-                                        Maximum: 100 accounts per batch
+                                        Format: <code>email|password|token|client_id</code><br>
+                                        Seller .txt files are supported directly.
                                     </div>
                                 </div>
                             </div>
@@ -107,15 +107,15 @@
                     </div>
                     <div class="card-body">
                         <h6>File Formats:</h6>
-                        <ul class="small">
-                            <li><strong>Proxies:</strong> Text file with one proxy per line</li>
-                            <li><strong>Accounts:</strong> Excel or CSV with email/password columns</li>
-                        </ul>
+                        <ul class="small">
+                            <li><strong>Proxies:</strong> .txt file with <code>IP:PORT:USER:PASS</code></li>
+                            <li><strong>Accounts:</strong> .txt file with <code>email|password|token|id</code></li>
+                        </ul>
 
-                        <h6>Process:</h6>
-                        <ol class="small">
-                            <li>Upload proxies file from your company</li>
-                            <li>Upload accounts file from your master spreadsheet</li>
+                        <h6>Process:</h6>
+                        <ol class="small">
+                            <li>Upload raw proxy file from your seller</li>
+                            <li>Upload raw account file from your seller</li>
                             <li>Click "Start Automation" to begin parallel processing</li>
                             <li>Monitor progress via Telegram notifications</li>
                             <li>Download results when complete</li>
