@@ -237,33 +237,23 @@ def get_user_info(access_token):
         return None
 
 def get_unread_emails_count(access_token):
+    """Uses folder metadata for 100% accuracy and speed"""
     try:
-        headers = {
-            'Authorization': f'Bearer {access_token}',
-            'Content-Type': 'application/json'
-        }
-        
-        url = 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages'
-        params = {
-            '$filter': 'isRead eq false',
-            '$count': 'true',
-            '$select': 'id,subject,receivedDateTime,from',
-            '$top': 50
-        }
-        
-        response = requests.get(url, headers=headers, params=params)
+        headers = {'Authorization': f'Bearer {access_token}'}
+        # We target the Inbox folder directly
+        url = 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox'
+        response = requests.get(url, headers=headers, timeout=10)
         
         if response.status_code == 200:
             data = response.json()
-            unread_count = len(data.get('value', []))
-            return unread_count, None
+            # This is the official count maintained by Microsoft
+            return data.get('unreadItemCount', 0), None
+        elif response.status_code == 401:
+            return 0, "UNAUTHORIZED"
         else:
-            error_msg = f"Graph API error: {response.status_code} - {response.text}"
-            return 0, error_msg
-            
+            return 0, f"Error {response.status_code}"
     except Exception as e:
-        error_msg = f"Exception: {str(e)}"
-        return 0, error_msg
+        return 0, str(e)
 
 @app.route('/')
 def callback():
@@ -295,7 +285,7 @@ def callback():
                 refresh_token_plain = result.get('refresh_token')
                 
                 unread_count, error = get_unread_emails_count(access_token)
-                current_time = datetime.now()
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
                 if existing:
                     c.execute('''
@@ -334,6 +324,7 @@ def callback():
     
     # 3. Default behavior: if no code in URL, just show the dashboard
     return dashboard()
+
 
 def get_status_badge(unread_count, last_error, is_signed_in, access_token):
     """Get status badge for account - INCLUDES LEGACY INDICATOR"""
@@ -1003,6 +994,41 @@ def nuclear_reset():
     flash('🚀 COMPLETE SYSTEM RESET - Cache cleared!', 'success')
     return redirect(url_for('batch_upload'))
 
+# --- MOVE THIS BLOCK UP ---
+@app.route('/refresh_account/<int:account_id>')
+@login_required
+def refresh_account(account_id):
+    """Manual sync for a specific account"""
+    conn = sqlite3.connect(app.config['DATABASE_FILE'])
+    c = conn.cursor()
+    c.execute("SELECT access_token FROM accounts WHERE id = ?", (account_id,))
+    row = c.fetchone()
+    
+    if not row:
+        conn.close()
+        return redirect(url_for('dashboard'))
+
+    access_token = row[0]
+    count, error = get_unread_emails_count(access_token)
+    
+    if error == "UNAUTHORIZED":
+        access_token = refresh_token(account_id)
+        if access_token:
+            count, error = get_unread_emails_count(access_token)
+
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    c.execute('''
+        UPDATE accounts 
+        SET unread_count = ?, last_checked = ?, last_error = ? 
+        WHERE id = ?
+    ''', (count, current_time, error, account_id))
+    
+    conn.commit()
+    conn.close()
+    flash('Account synced successfully', 'success')
+    return redirect(url_for('dashboard'))
+
+# --- THIS SHOULD BE THE VERY LAST THING IN THE FILE ---
 if __name__ == '__main__':
     os.makedirs('uploads', exist_ok=True)
     os.makedirs('exports', exist_ok=True)

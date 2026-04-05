@@ -12,7 +12,7 @@
         .email-cell { max-width: 250px; word-break: break-all; }
         .status-badge { font-size: 0.8rem; }
         .unread-count { min-width: 60px; }
-        .action-buttons { min-width: 120px; }
+        .action-buttons { min-width: 140px; } /* Slightly wider for new button */
         .bulk-selector { width: 30px; }
         .search-box { max-width: 300px; }
         .stats-card { transition: all 0.3s; }
@@ -55,7 +55,6 @@
             {% endif %}
         {% endwith %}
 
-        <!-- Dashboard Stats -->
         <div class="row mb-4">
             <div class="col-md-2">
                 <div class="card stats-card bg-primary text-white">
@@ -108,7 +107,6 @@
             </div>
         </div>
 
-        <!-- Search and Filters -->
         <div class="card mb-4">
             <div class="card-body">
                 <div class="row g-3 align-items-center">
@@ -149,7 +147,6 @@
             </div>
         </div>
 
-        <!-- Bulk Actions Toolbar -->
         <div class="card mb-3" id="bulkActionsToolbar" style="display: none;">
             <div class="card-body py-2">
                 <div class="row align-items-center">
@@ -176,7 +173,6 @@
             </div>
         </div>
 
-        <!-- Accounts Table -->
         <div class="card">
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -211,11 +207,7 @@
                                     {% endif %}
                                 </td>
                                 <td class="text-center">
-                                    <span class="status-badge" title="
-                                        {% if account.last_error %}Error: {{ account.last_error }}
-                                        {% elif not account.is_signed_in %}Signed out
-                                        {% elif account.unread_count > 0 %}Active with unread emails
-                                        {% else %}Active, no unread emails{% endif %}">
+                                    <span class="status-badge">
                                         {{ account.status_badge }}
                                     </span>
                                 </td>
@@ -246,6 +238,10 @@
                                 </td>
                                 <td class="text-center action-buttons">
                                     <div class="btn-group btn-group-sm">
+                                        <a href="{{ url_for('refresh_account', account_id=account.id) }}" 
+                                           class="btn btn-outline-success" title="Sync Unread Count">
+                                            <i class="fas fa-sync-alt"></i>
+                                        </a>
                                         <a href="{{ url_for('view_emails', account_id=account.id) }}" 
                                            class="btn btn-outline-primary" title="View emails">
                                             <i class="fas fa-envelope"></i>
@@ -290,7 +286,6 @@
             </div>
         </div>
 
-        <!-- Pagination -->
         {% if total_pages > 1 %}
         <nav class="mt-4">
             <ul class="pagination justify-content-center">
@@ -326,13 +321,6 @@
             </ul>
         </nav>
         {% endif %}
-
-        <div class="mt-3 text-center text-muted">
-            <small>
-                Showing {{ accounts|length }} of {{ stats.total }} accounts
-                {% if search_query %}matching "{{ search_query }}"{% endif %}
-            </small>
-        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -399,15 +387,15 @@
                     alert('Error: ' + data.error);
                 }
             })
-            .catch(error => {
-                alert('Error: ' + error);
-            });
-        }
+.catch(error => {
+                alert('Error: ' + error);
+            });
+        }
 
-        // Auto-refresh page every 5 minutes
-        setTimeout(function() {
-            window.location.reload();
-        }, 300000);
-    </script>
+        // Auto-refresh dashboard data every 60 seconds to keep counts in sync
+        setInterval(function() {
+            location.reload();
+        }, 60000);
+    </script>
 </body>
 </html>
