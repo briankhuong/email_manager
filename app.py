@@ -267,12 +267,15 @@ def get_unread_emails_count(access_token):
 
 @app.route('/')
 def callback():
-    """Main route that handles both OAuth callback and dashboard display"""
+    """Main route that handles OAuth callback and redirects to a clean URL"""
+    # 1. Handle explicit errors from Microsoft (e.g., user cancelled login)
     if 'error' in request.args:
         flash(f"Authentication error: {request.args['error']}", 'error')
         return redirect(url_for('dashboard'))
     
+    # 2. Handle the Authorization Code exchange
     if 'code' in request.args:
+        # Swap the code for an access token
         result = get_token_from_code(request.args['code'])
         
         if 'access_token' in result:
@@ -312,16 +315,24 @@ def callback():
                 conn.commit()
                 conn.close()
                 
+                # Flash success message
                 if unread_count > 0:
                     flash(f'Successfully added {email} - {unread_count} new emails found!', 'success')
                 else:
                     flash(f'Successfully added {email} - no new emails', 'success')
+                
+                # CRITICAL FIX: Redirect to dashboard to clear the '?code=' from the URL
+                return redirect(url_for('dashboard'))
             else:
                 flash("Failed to get user information - access token may be invalid", 'error')
+                return redirect(url_for('dashboard'))
         else:
+            # Handle expired or invalid code error gracefully
             error_description = result.get("error_description", "Unknown error")
             flash(f'Failed to get access token: {error_description}', 'error')
+            return redirect(url_for('dashboard'))
     
+    # 3. Default behavior: if no code in URL, just show the dashboard
     return dashboard()
 
 def get_status_badge(unread_count, last_error, is_signed_in, access_token):
